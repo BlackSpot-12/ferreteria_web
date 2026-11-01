@@ -1,0 +1,752 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Gestión - Bimetálica</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #F4F3EF; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .bg-petroleo { background-color: #14283C; }
+        .bg-acero { background-color: #2E5A78; }
+        .btn-naranja { background-color: #E66E19; color: #FFFFFF; border: none; font-weight: 600; }
+        .btn-naranja:hover { background-color: #cf5f10; color: #FFFFFF; }
+        .nav-pills .nav-link { color: #14283C; font-weight: 600; border-radius: 8px; }
+        .nav-pills .nav-link.active { background-color: #14283C; color: #FFFFFF; }
+        @media print {
+            .no-print { display: none !important; }
+            body { background-color: #FFFFFF; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg bg-petroleo py-2 no-print">
+        <div class="container">
+            <a class="navbar-brand" href="{% if rol == 'cliente' %}{% url 'inicio' %}{% else %}{% url 'panel' %}{% endif %}">
+                <img src="{% static 'tienda/logo.png' %}" alt="Logo Bimetálica" height="75">
+            </a>
+            <div class="d-flex align-items-center gap-2 flex-nowrap">
+                <span class="text-white small me-2 text-nowrap">
+                    <i class="bi bi-person-check-fill text-warning me-1"></i>
+                    Hola, <strong>{{ usuario.nombre }}</strong>
+                </span>
+                {% if rol == 'cliente' %}
+                    <a href="{% url 'inicio' %}" class="btn btn-sm fw-bold text-nowrap" style="background-color: #d1d5db; color: #14283C;">
+                        Ir al Catálogo
+                    </a>
+                    <a href="{% url 'ver_carrito' %}" class="btn btn-naranja btn-sm d-flex align-items-center gap-2 text-nowrap px-3 py-1">
+                        Carrito <span class="badge bg-white text-dark rounded-pill">{{ cantidad_carrito|default:0 }}</span>
+                    </a>
+                {% endif %}
+                <a href="{% url 'logout' %}" class="btn btn-sm btn-outline-light text-nowrap">Salir</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-4">
+        {% if messages %}
+            <div class="no-print">
+                {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} py-2 small shadow-sm">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <ul class="nav nav-pills gap-2 mb-4 bg-white p-2 rounded-3 shadow-sm no-print">
+            {% if rol == 'cliente' %}
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'mis_pedidos' %}active{% endif %}" href="{% url 'panel' %}?seccion=mis_pedidos">
+                        <i class="bi bi-bag-check me-1"></i> Estado de Mis Pedidos
+                    </a>
+                </li>
+            {% endif %}
+
+            {% if rol == 'empleado' %}
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'pos' %}active{% endif %}" href="{% url 'panel' %}?seccion=pos">
+                        <i class="bi bi-calculator me-1"></i> Punto de Venta (POS)
+                    </a>
+                </li>
+            {% endif %}
+
+            {% if rol == 'empleado' or rol == 'admin' %}
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'inventario' %}active{% endif %}" href="{% url 'panel' %}?seccion=inventario">
+                        <i class="bi bi-boxes me-1"></i> Inventario y Ubicaciones
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'pedidos' %}active{% endif %}" href="{% url 'panel' %}?seccion=pedidos">
+                        <i class="bi bi-truck me-1"></i> Pedidos de Clientes y Ventas
+                    </a>
+                </li>
+            {% endif %}
+
+            {% if rol == 'admin' %}
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'reportes' %}active{% endif %}" href="{% url 'panel' %}?seccion=reportes">
+                        <i class="bi bi-bar-chart-line me-1"></i> Reportes Gerenciales
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'usuarios' %}active{% endif %}" href="{% url 'panel' %}?seccion=usuarios">
+                        <i class="bi bi-people me-1"></i> Usuarios y Accesos
+                    </a>
+                </li>
+            {% endif %}
+        </ul>
+
+        {% if seccion == 'mis_pedidos' and rol == 'cliente' %}
+        <div class="card border-0 shadow-sm rounded-3 p-4">
+            <h4 class="fw-bold mb-3" style="color: #14283C;">Mis Solicitudes y Pedidos Realizados</h4>
+            {% if mis_pedidos %}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>N° Documento</th>
+                                <th>Fecha</th>
+                                <th>Tipo</th>
+                                <th>Total</th>
+                                <th>Estado del Pedido</th>
+                                <th class="text-end">Comprobante</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ped in mis_pedidos %}
+                            <tr>
+                                <td class="fw-bold">{{ ped.numero_factura }}</td>
+                                <td>{{ ped.fecha }}</td>
+                                <td>{{ ped.tipo_comprobante }}</td>
+                                <td class="fw-bold">${{ ped.total_pagar|floatformat:2 }}</td>
+                                <td>
+                                    <span class="badge bg-info text-dark">{{ ped.estado_pedido }}</span>
+                                </td>
+                                <td class="text-end">
+                                    <a href="{% url 'ver_factura_guardada' ped.numero_factura %}" class="btn btn-sm btn-naranja">Ver Factura</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted mb-0">Aún no has registrado pedidos con tu cuenta. Puedes solicitar productos desde el catálogo.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if seccion == 'pos' and rol == 'empleado' %}
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">
+                        <i class="bi bi-search me-1"></i> Búsqueda Rápida para Punto de Venta
+                    </h5>
+                    <form action="{% url 'panel' %}" method="GET" class="d-flex gap-2 mb-3">
+                        <input type="hidden" name="seccion" value="pos">
+                        <input type="text" name="q_inv" value="{{ busqueda_inv }}" class="form-control" placeholder="Buscar por código, nombre, marca o medida...">
+                        <button type="submit" class="btn btn-naranja px-4">Buscar</button>
+                    </form>
+
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Código / Producto</th>
+                                    <th>Ubicación</th>
+                                    <th>Stock</th>
+                                    <th>Precio</th>
+                                    <th style="width: 140px;">Agregar a Venta</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in productos %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ p.codigo }}</strong> - {{ p.nombre }}
+                                        <div class="text-muted">{{ p.marca }} | {{ p.medida }}</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border">{{ p.pasillo }} / {{ p.estanteria }}</span>
+                                    </td>
+                                    <td>
+                                        {% if p.stock <= 0 %}
+                                            <span class="badge bg-danger">Agotado</span>
+                                        {% elif p.stock <= p.stock_minimo %}
+                                            <span class="badge bg-warning text-dark">{{ p.stock }} u.</span>
+                                        {% else %}
+                                            <span class="badge bg-success">{{ p.stock }} u.</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="fw-bold">${{ p.precio|floatformat:2 }}</td>
+                                    <td>
+                                        <form action="{% url 'agregar_al_carrito' p.id %}" method="POST" class="d-flex gap-1">
+                                            {% csrf_token %}
+                                            <input type="number" name="cantidad" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center" {% if p.stock <= 0 %}disabled{% endif %}>
+                                            <button type="submit" class="btn btn-sm btn-naranja" {% if p.stock <= 0 %}disabled{% endif %}>
+                                                <i class="bi bi-plus-lg"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0" style="color: #14283C;">Caja / Punto de Venta</h5>
+                        {% if resumen_carrito.items %}
+                            <a href="{% url 'vaciar_carrito' %}" class="btn btn-sm btn-outline-danger">Limpiar</a>
+                        {% endif %}
+                    </div>
+
+                    {% if resumen_carrito.items %}
+                        <ul class="list-group list-group-flush mb-3 small">
+                            {% for item in resumen_carrito.items %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <div>
+                                    <strong>{{ item.cantidad }}x</strong> {{ item.nombre }} ({{ item.medida }})
+                                    <div class="text-muted">${{ item.precio_aplicado|floatformat:2 }} c/u</div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="fw-bold">${{ item.subtotal|floatformat:2 }}</span>
+                                    <a href="{% url 'eliminar_del_carrito' item.id %}" class="text-danger"><i class="bi bi-x-circle"></i></a>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+
+                        <div class="bg-light p-3 rounded mb-3 small">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Subtotal sin IVA:</span>
+                                <span>${{ resumen_carrito.subtotal_sin_iva|floatformat:2 }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>IVA (13%):</span>
+                                <span>${{ resumen_carrito.iva|floatformat:2 }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between fw-bold fs-5 mt-2 pt-2 border-top" style="color: #E66E19;">
+                                <span>Total Venta:</span>
+                                <span>${{ resumen_carrito.total_pagar|floatformat:2 }}</span>
+                            </div>
+                        </div>
+
+                        <form action="{% url 'generar_factura' %}" method="POST">
+                            {% csrf_token %}
+                            <input type="hidden" name="origen_operacion" value="Punto de Venta">
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <label class="form-label small fw-semibold">Tipo de Cliente</label>
+                                    <select name="tipo_cliente" class="form-select form-select-sm">
+                                        <option value="Cliente Natural">Cliente Natural</option>
+                                        <option value="Cliente Jurídico">Cliente Jurídico (Empresa)</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small fw-semibold">Descuento Extra ($)</label>
+                                    <input type="number" step="0.01" name="descuento_extra" value="0.00" min="0" class="form-control form-control-sm">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-semibold">Nombre del Cliente o Empresa <span class="text-danger">*</span></label>
+                                <input type="text" name="cliente_nombre" class="form-control form-control-sm" placeholder="Ingresa el nombre del cliente o empresa" required>
+                            </div>
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label class="form-label small fw-semibold">DUI / NIT / NRC <span class="text-danger">*</span></label>
+                                    <input type="text" name="cliente_documento" class="form-control form-control-sm" placeholder="Ej. 0614-000000-000-0" required>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small fw-semibold">Método de Pago</label>
+                                    <select name="metodo_pago" class="form-select form-select-sm">
+                                        <option value="Efectivo">Efectivo</option>
+                                        <option value="Tarjeta">Tarjeta</option>
+                                        <option value="Transferencia">Transferencia</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <input type="hidden" name="cliente_direccion" value="Venta en Sucursal Bimetálica">
+                            <button type="submit" class="btn btn-naranja w-100 py-2">
+                                <i class="bi bi-printer me-1"></i> Cobrar y Emitir Factura
+                            </button>
+                        </form>
+                    {% else %}
+                        <p class="text-muted small mb-0">Selecciona productos de la tabla izquierda para registrar una venta en mostrador.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if seccion == 'inventario' and rol != 'cliente' %}
+        <div class="row g-4">
+            {% if rol == 'admin' %}
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm rounded-3 p-4 mb-4">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">
+                        {% if producto_editar %}Editar Producto{% else %}Registrar Producto{% endif %}
+                    </h5>
+                    <form action="{% url 'guardar_producto' %}" method="POST" class="small">
+                        {% csrf_token %}
+                        <input type="hidden" name="producto_id" value="{{ producto_editar.id|default:'' }}">
+                        <div class="row g-2 mb-2">
+                            <div class="col-5">
+                                <label class="form-label fw-semibold">Código</label>
+                                <input type="text" name="codigo" class="form-control form-control-sm" value="{{ producto_editar.codigo|default:'' }}" placeholder="HER-020" required>
+                            </div>
+                            <div class="col-7">
+                                <label class="form-label fw-semibold">Categoría</label>
+                                <select name="categoria" class="form-select form-select-sm">
+                                    {% for cat in categorias %}
+                                        <option value="{{ cat }}" {% if producto_editar.categoria == cat %}selected{% endif %}>{{ cat }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Nombre del Producto</label>
+                            <input type="text" name="nombre" class="form-control form-control-sm" value="{{ producto_editar.nombre|default:'' }}" required>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Marca</label>
+                                <input type="text" name="marca" class="form-control form-control-sm" value="{{ producto_editar.marca|default:'' }}" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Medida / Presentación</label>
+                                <input type="text" name="medida" class="form-control form-control-sm" value="{{ producto_editar.medida|default:'' }}" required>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-4">
+                                <label class="form-label fw-semibold">P. Compra ($)</label>
+                                <input type="number" step="0.01" name="precio_compra" class="form-control form-control-sm" value="{{ producto_editar.precio_compra|default:'0.00' }}" required>
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label fw-semibold">P. Venta ($)</label>
+                                <input type="number" step="0.01" name="precio" class="form-control form-control-sm" value="{{ producto_editar.precio|default:'0.00' }}" required>
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label fw-semibold">Mayoreo ($)</label>
+                                <input type="number" step="0.01" name="precio_mayoreo" class="form-control form-control-sm" value="{{ producto_editar.precio_mayoreo|default:'0.00' }}" required>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Existencia Actual</label>
+                                <input type="number" name="stock" class="form-control form-control-sm" value="{{ producto_editar.stock|default:'10' }}" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Stock Mínimo</label>
+                                <input type="number" name="stock_minimo" class="form-control form-control-sm" value="{{ producto_editar.stock_minimo|default:'5' }}" required>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Pasillo</label>
+                                <input type="text" name="pasillo" class="form-control form-control-sm" value="{{ producto_editar.pasillo|default:'Pasillo 1' }}" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Estantería / Área</label>
+                                <input type="text" name="estanteria" class="form-control form-control-sm" value="{{ producto_editar.estanteria|default:'Estante A-1' }}" required>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">URL de Fotografía</label>
+                            <input type="text" name="imagen" class="form-control form-control-sm" value="{{ producto_editar.imagen|default:'' }}" placeholder="https://...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Descripción</label>
+                            <textarea name="descripcion" rows="2" class="form-control form-control-sm" required>{{ producto_editar.descripcion|default:'' }}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-naranja w-100 py-2">Guardar Producto</button>
+                    </form>
+                </div>
+
+                <div class="card border-0 shadow-sm rounded-3 p-3">
+                    <h6 class="fw-bold mb-2" style="color: #14283C;">Agregar Nueva Categoría</h6>
+                    <form action="{% url 'agregar_categoria' %}" method="POST" class="d-flex gap-2">
+                        {% csrf_token %}
+                        <input type="text" name="nombre_categoria" class="form-control form-control-sm" placeholder="Ej. Jardinería" required>
+                        <button type="submit" class="btn btn-sm btn-naranja px-3">Añadir</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="{% if rol == 'admin' %}col-lg-8{% else %}col-12{% endif %}">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <h5 class="fw-bold mb-0" style="color: #14283C;">Control de Inventario y Ubicaciones</h5>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'panel' %}?seccion=inventario" class="btn {% if not filtro_stock %}btn-dark{% else %}btn-outline-secondary{% endif %}">Todos</a>
+                                <a href="{% url 'panel' %}?seccion=inventario&filtro_stock=bajo_stock" class="btn {% if filtro_stock == 'bajo_stock' %}btn-warning text-dark fw-bold{% else %}btn-outline-secondary{% endif %}">Pocas Existencias</a>
+                                <a href="{% url 'panel' %}?seccion=inventario&filtro_stock=agotados" class="btn {% if filtro_stock == 'agotados' %}btn-danger{% else %}btn-outline-secondary{% endif %}">Agotados</a>
+                            </div>
+                            <form action="{% url 'panel' %}" method="GET" class="d-flex gap-1">
+                                <input type="hidden" name="seccion" value="inventario">
+                                <input type="text" name="q_inv" value="{{ busqueda_inv }}" class="form-control form-control-sm" placeholder="Código, marca, medida...">
+                                <button type="submit" class="btn btn-sm btn-naranja">Filtrar</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Producto / Marca / Medida</th>
+                                    <th>Ubicación Física</th>
+                                    <th>Precio Venta</th>
+                                    <th>Existencias</th>
+                                    <th>Estado</th>
+                                    {% if rol == 'admin' %}<th>Acción</th>{% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in productos %}
+                                <tr>
+                                    <td class="fw-bold">{{ p.codigo }}</td>
+                                    <td>
+                                        <strong>{{ p.nombre }}</strong>
+                                        <div class="text-muted">{{ p.marca }} | {{ p.medida }} ({{ p.categoria }})</div>
+                                    </td>
+                                    <td>
+                                        <span class="fw-semibold">{{ p.pasillo }}</span>
+                                        <div class="text-muted">{{ p.estanteria }}</div>
+                                    </td>
+                                    <td class="fw-bold">${{ p.precio|floatformat:2 }}</td>
+                                    <td>
+                                        <strong>{{ p.stock }}</strong> u.
+                                        <div class="text-muted" style="font-size: 0.75rem;">Mín: {{ p.stock_minimo }}</div>
+                                    </td>
+                                    <td>
+                                        {% if p.stock <= 0 %}
+                                            <span class="badge bg-danger">Agotado</span>
+                                        {% elif p.stock <= p.stock_minimo %}
+                                            <span class="badge bg-warning text-dark">Reabastecer</span>
+                                        {% else %}
+                                            <span class="badge bg-success">Óptimo</span>
+                                        {% endif %}
+                                    </td>
+                                    {% if rol == 'admin' %}
+                                    <td>
+                                        <a href="{% url 'panel' %}?seccion=inventario&editar_id={{ p.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if seccion == 'pedidos' and rol != 'cliente' %}
+        <div class="card border-0 shadow-sm rounded-3 p-4">
+            <h5 class="fw-bold mb-3" style="color: #14283C;">Gestión de Pedidos de Clientes y Registro de Ventas</h5>
+            {% if ventas_pedidos %}
+                <div class="table-responsive">
+                    <table class="table align-middle small">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Documento</th>
+                                <th>Fecha</th>
+                                <th>Cliente / Tipo</th>
+                                <th>Origen</th>
+                                <th>Total</th>
+                                <th>Estado de Preparación</th>
+                                <th class="text-end">Factura</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in ventas_pedidos %}
+                            <tr>
+                                <td class="fw-bold">{{ v.numero_factura }}</td>
+                                <td>{{ v.fecha }}</td>
+                                <td>
+                                    <strong>{{ v.cliente_nombre }}</strong>
+                                    <div class="text-muted">{{ v.tipo_cliente }} ({{ v.tipo_comprobante }})</div>
+                                </td>
+                                <td>{{ v.origen_operacion }}</td>
+                                <td class="fw-bold">${{ v.total_pagar|floatformat:2 }}</td>
+                                <td>
+                                    <form action="{% url 'cambiar_estado_pedido' v.numero_factura %}" method="POST" class="d-flex gap-1">
+                                        {% csrf_token %}
+                                        <select name="estado_pedido" class="form-select form-select-sm" style="width: 170px;">
+                                            <option value="Pendiente de preparación" {% if v.estado_pedido == 'Pendiente de preparación' %}selected{% endif %}>Pendiente de preparación</option>
+                                            <option value="En preparación" {% if v.estado_pedido == 'En preparación' %}selected{% endif %}>En preparación</option>
+                                            <option value="Listo para entrega" {% if v.estado_pedido == 'Listo para entrega' %}selected{% endif %}>Listo para entrega</option>
+                                            <option value="Entregado / Completado" {% if v.estado_pedido == 'Entregado / Completado' %}selected{% endif %}>Entregado / Completado</option>
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-outline-success">Guardar</button>
+                                    </form>
+                                </td>
+                                <td class="text-end">
+                                    <a href="{% url 'ver_factura_guardada' v.numero_factura %}" class="btn btn-sm btn-naranja">Ver Factura</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted mb-0">Aún no se han registrado pedidos ni ventas en esta sesión.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if seccion == 'reportes' and rol == 'admin' %}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0" style="color: #14283C;">Reportes Gerenciales de la Ferretería</h4>
+            <button onclick="window.print()" class="btn btn-naranja no-print">
+                <i class="bi bi-printer me-1"></i> Imprimir / Guardar Reporte PDF
+            </button>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Valor Inventario (Costo)</small>
+                    <h4 class="fw-bold mb-0" style="color: #14283C;">${{ valor_inventario_costo|floatformat:2 }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Valor Inventario (Precio Venta)</small>
+                    <h4 class="fw-bold mb-0" style="color: #2E5A78;">${{ valor_inventario_venta|floatformat:2 }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Ingresos por Ventas</small>
+                    <h4 class="fw-bold mb-0 text-success">${{ total_ingresos_ventas|floatformat:2 }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Productos por Reabastecer</small>
+                    <h4 class="fw-bold mb-0 text-danger">{{ total_por_reabastecer }}</h4>
+                </div>
+            </div>
+        </div>
+
+        <!-- 1. Reporte de Agotados y Pocas Existencias -->
+        <div class="card border-0 shadow-sm rounded-3 p-4 mb-4">
+            <h5 class="fw-bold mb-3 text-danger">1. Reporte de Productos Agotados y con Pocas Existencias (Reabastecimiento)</h5>
+            <div class="table-responsive">
+                <table class="table table-bordered small align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Código</th>
+                            <th>Producto</th>
+                            <th>Marca / Medida</th>
+                            <th>Ubicación</th>
+                            <th>Stock Actual</th>
+                            <th>Stock Mínimo</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in productos_agotados %}
+                        <tr>
+                            <td>{{ p.codigo }}</td>
+                            <td class="fw-bold">{{ p.nombre }}</td>
+                            <td>{{ p.marca }} ({{ p.medida }})</td>
+                            <td>{{ p.pasillo }} - {{ p.estanteria }}</td>
+                            <td class="text-danger fw-bold">0</td>
+                            <td>{{ p.stock_minimo }}</td>
+                            <td><span class="badge bg-danger">Agotado</span></td>
+                        </tr>
+                        {% endfor %}
+                        {% for p in productos_bajo_stock %}
+                        <tr>
+                            <td>{{ p.codigo }}</td>
+                            <td class="fw-bold">{{ p.nombre }}</td>
+                            <td>{{ p.marca }} ({{ p.medida }})</td>
+                            <td>{{ p.pasillo }} - {{ p.estanteria }}</td>
+                            <td class="text-warning fw-bold">{{ p.stock }}</td>
+                            <td>{{ p.stock_minimo }}</td>
+                            <td><span class="badge bg-warning text-dark">Pocas existencias</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 2. Reporte de Productos por Categoría y Valorización -->
+        <div class="row g-4 mb-4">
+            <div class="col-lg-6">
+                <div class="card border-0 shadow-sm rounded-3 p-4 h-100">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">2. Productos por Categoría y Valor</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered small align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Categoría</th>
+                                    <th class="text-center">Productos</th>
+                                    <th class="text-center">Unidades</th>
+                                    <th class="text-end">Valor en Stock</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cat in reporte_categorias %}
+                                <tr>
+                                    <td class="fw-semibold">{{ cat.categoria }}</td>
+                                    <td class="text-center">{{ cat.cantidad_productos }}</td>
+                                    <td class="text-center">{{ cat.unidades_stock }}</td>
+                                    <td class="text-end fw-bold">${{ cat.valor_total|floatformat:2 }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Reporte de Maquinaria y Productos de Mayor Valor -->
+            <div class="col-lg-6">
+                <div class="card border-0 shadow-sm rounded-3 p-4 h-100">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">3. Maquinaria y Artículos de Mayor Valor</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered small align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Código / Producto</th>
+                                    <th>Ubicación</th>
+                                    <th class="text-center">Stock</th>
+                                    <th class="text-end">Precio Unit.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in productos_alto_valor %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ p.codigo }}</strong> - {{ p.nombre }}
+                                        <div class="text-muted">{{ p.categoria }} | {{ p.marca }}</div>
+                                    </td>
+                                    <td>{{ p.pasillo }} ({{ p.estanteria }})</td>
+                                    <td class="text-center fw-bold">{{ p.stock }}</td>
+                                    <td class="text-end fw-bold">${{ p.precio|floatformat:2 }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Reporte de Productos Más Vendidos y Solicitados -->
+        <div class="card border-0 shadow-sm rounded-3 p-4 mb-4">
+            <h5 class="fw-bold mb-3" style="color: #14283C;">4. Productos Más Vendidos y Solicitados</h5>
+            {% if productos_mas_vendidos %}
+                <div class="table-responsive">
+                    <table class="table table-bordered small align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Código</th>
+                                <th>Producto</th>
+                                <th>Categoría</th>
+                                <th class="text-center">Unidades Vendidas / Solicitadas</th>
+                                <th class="text-end">Total Generado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pm in productos_mas_vendidos %}
+                            <tr>
+                                <td class="fw-bold">{{ pm.codigo }}</td>
+                                <td>{{ pm.nombre }}</td>
+                                <td>{{ pm.categoria }}</td>
+                                <td class="text-center fw-bold">{{ pm.unidades_vendidas }}</td>
+                                <td class="text-end fw-bold text-success">${{ pm.ingresos_generados|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted small mb-0">Los productos más vendidos se calcularán automáticamente a medida que se registren ventas o pedidos.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if seccion == 'usuarios' and rol == 'admin' %}
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">Registrar Personal Interno</h5>
+                    <form action="{% url 'guardar_usuario' %}" method="POST" class="small">
+                        {% csrf_token %}
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Nombre Completo</label>
+                            <input type="text" name="nombre" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Correo Electrónico</label>
+                            <input type="email" name="correo" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Usuario</label>
+                            <input type="text" name="usuario" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Contraseña</label>
+                            <input type="password" name="password" class="form-control form-control-sm" value="123" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Nivel de Acceso (Rol)</label>
+                            <select name="rol" class="form-select form-select-sm">
+                                <option value="empleado">Empleado</option>
+                                <option value="admin">Propietario / Administrador</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-naranja w-100 py-2">Crear Usuario</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">Usuarios del Sistema y Niveles de Acceso</h5>
+                    <table class="table table-bordered small align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Usuario</th>
+                                <th>Correo</th>
+                                <th>Rol Asignado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in usuarios_sistema %}
+                            <tr>
+                                <td class="fw-bold">{{ u.nombre }}</td>
+                                <td>{{ u.usuario }}</td>
+                                <td>{{ u.correo }}</td>
+                                <td><span class="badge bg-secondary text-uppercase">{{ u.rol }}</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+</body>
+</html>

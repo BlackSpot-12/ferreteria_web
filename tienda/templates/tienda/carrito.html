@@ -1,0 +1,202 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carrito de Compras - Bimetálica</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #F4F3EF; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .bg-petroleo { background-color: #14283C; }
+        .btn-naranja { background-color: #E66E19; color: #FFFFFF; border: none; font-weight: 600; }
+        .btn-naranja:hover { background-color: #cf5f10; color: #FFFFFF; }
+        .badge-mayoreo { background-color: #198754; color: #FFFFFF; font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg bg-petroleo py-2">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'inicio' %}">
+                <img src="{% static 'tienda/logo.png' %}" alt="Logo Bimetálica" height="80">
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <a href="{% url 'inicio' %}" class="btn fw-bold shadow-sm px-3 py-2" style="background-color: #d1d5db; color: #14283C; border-radius: 8px; font-size: 0.875rem;">
+                    Seguir comprando
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <h2 class="fw-bold mb-4" style="color: #14283C;">
+            <i class="bi bi-cart3 me-2"></i> Solicitud de Pedido y Facturación
+        </h2>
+
+        {% if items %}
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card border-0 shadow-sm rounded-3 p-3">
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Producto</th>
+                                    <th class="text-center">Precio Unitario</th>
+                                    <th class="text-center" style="width: 150px;">Cantidad</th>
+                                    <th class="text-end">Subtotal</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in items %}
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-3">
+                                            <img src="{{ item.imagen }}" alt="{{ item.nombre }}" class="rounded border" style="width: 55px; height: 55px; object-fit: cover;">
+                                            <div>
+                                                <h6 class="fw-bold mb-0">{{ item.nombre }}</h6>
+                                                <small class="text-muted">Cód: {{ item.codigo }} | {{ item.marca }} ({{ item.medida }})</small>
+                                                {% if item.es_mayoreo %}
+                                                    <span class="badge badge-mayoreo ms-1">Mayoreo</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="fw-semibold">${{ item.precio_aplicado|floatformat:2 }}</span>
+                                        {% if not item.es_mayoreo %}
+                                            <small class="d-block text-muted" style="font-size: 0.75rem;">
+                                                Mayoreo (12+): ${{ item.precio_mayoreo|floatformat:2 }}
+                                            </small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <form action="{% url 'actualizar_carrito' item.id %}" method="POST" class="d-flex gap-1">
+                                            {% csrf_token %}
+                                            <input type="number" name="cantidad" value="{{ item.cantidad }}" min="1" max="{{ item.stock }}" class="form-control form-control-sm text-center fw-bold">
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                                <i class="bi bi-arrow-repeat"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                    <td class="text-end fw-bold" style="color: #14283C;">
+                                        ${{ item.subtotal|floatformat:2 }}
+                                    </td>
+                                    <td class="text-end">
+                                        <a href="{% url 'eliminar_del_carrito' item.id %}" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i> Al confirmar el pedido, las existencias se actualizan automáticamente.
+                        </small>
+                        <a href="{% url 'vaciar_carrito' %}" class="btn btn-sm btn-outline-danger">Vaciar carrito</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm rounded-3 p-4">
+                    <h5 class="fw-bold mb-3" style="color: #14283C;">Datos de Facturación</h5>
+
+                    {% if ahorro_mayoreo > 0 %}
+                    <div class="alert alert-success py-2 small mb-3">
+                        <i class="bi bi-tag-fill me-1"></i> Descuento aplicado: <strong>${{ ahorro_mayoreo|floatformat:2 }}</strong>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-between mb-2 text-muted">
+                        <span>Subtotal (Sin IVA):</span>
+                        <span>${{ subtotal_sin_iva|floatformat:2 }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 text-muted">
+                        <span>IVA (13%):</span>
+                        <span>${{ iva|floatformat:2 }}</span>
+                    </div>
+                    <hr>
+                    <div class="d-flex justify-content-between mb-4">
+                        <span class="fs-5 fw-bold" style="color: #14283C;">Total a Pagar:</span>
+                        <span class="fs-4 fw-bold" style="color: #E66E19;">${{ total_pagar|floatformat:2 }}</span>
+                    </div>
+
+                    <form action="{% url 'generar_factura' %}" method="POST">
+                        {% csrf_token %}
+                        <input type="hidden" name="origen_operacion" value="Pedido Web">
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Tipo de Cliente</label>
+                            <select name="tipo_cliente" id="tipoClienteSelect" class="form-select form-select-sm" onchange="ajustarCamposCliente()">
+                                <option value="Cliente Natural">Cliente Natural (Uso personal / Consumidor Final)</option>
+                                <option value="Cliente Jurídico">Cliente Jurídico (Empresa / Crédito Fiscal)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold" id="labelNombre">Nombre Completo del Cliente</label>
+                            <input type="text" name="cliente_nombre" class="form-control form-control-sm" value="{{ request.session.usuario.nombre|default:'' }}" placeholder="Ej. Juan Pérez / Constructora S.A." required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold" id="labelDocumento">DUI / NIT</label>
+                            <input type="text" name="cliente_documento" class="form-control form-control-sm" placeholder="00000000-0" required>
+                        </div>
+                        <div class="mb-3 d-none" id="bloqueGiro">
+                            <label class="form-label small fw-semibold">Giro o Actividad Económica (Empresa)</label>
+                            <input type="text" name="cliente_giro" class="form-control form-control-sm" placeholder="Ej. Construcción y obras civiles">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Dirección de Entrega / Facturación</label>
+                            <input type="text" name="cliente_direccion" class="form-control form-control-sm" placeholder="San Salvador, El Salvador" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label small fw-semibold">Método de Pago</label>
+                            <select name="metodo_pago" class="form-select form-select-sm">
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Tarjeta">Tarjeta</option>
+                                <option value="Transferencia">Transferencia</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-naranja w-100 py-2">
+                            <i class="bi bi-receipt me-1"></i> Realizar Pedido y Generar Factura
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm rounded-3 p-5 text-center">
+            <i class="bi bi-cart-x text-muted" style="font-size: 4rem;"></i>
+            <h4 class="mt-3 fw-bold" style="color: #14283C;">Tu carrito está vacío</h4>
+            <p class="text-muted mb-0">Agrega herramientas o materiales del catálogo para generar un pedido.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function ajustarCamposCliente() {
+            const tipo = document.getElementById('tipoClienteSelect').value;
+            const bloqueGiro = document.getElementById('bloqueGiro');
+            const labelNombre = document.getElementById('labelNombre');
+            const labelDoc = document.getElementById('labelDocumento');
+
+            if (tipo === 'Cliente Jurídico') {
+                bloqueGiro.classList.remove('d-none');
+                labelNombre.textContent = 'Razón Social / Nombre de la Empresa';
+                labelDoc.textContent = 'NIT y Número de Registro (NRC)';
+            } else {
+                bloqueGiro.classList.add('d-none');
+                labelNombre.textContent = 'Nombre Completo del Cliente';
+                labelDoc.textContent = 'DUI / NIT';
+            }
+        }
+    </script>
+
+</body>
+</html>

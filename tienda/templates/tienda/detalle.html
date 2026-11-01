@@ -1,0 +1,137 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ producto.nombre }} - Bimetálica</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #F4F3EF; font-family: 'Segoe UI', system-ui, sans-serif; }
+        .bg-petroleo { background-color: #14283C; }
+        .bg-acero { background-color: #2E5A78; }
+        .btn-naranja { background-color: #E66E19; color: #FFFFFF; border: none; font-weight: 600; }
+        .btn-naranja:hover { background-color: #cf5f10; color: #FFFFFF; }
+        .badge-acero { background-color: #2E5A78; color: #FFFFFF; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg bg-petroleo py-2">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'inicio' %}">
+                <img src="{% static 'tienda/logo.png' %}" alt="Logo Bimetálica" height="80">
+            </a>
+            <div class="d-flex align-items-center gap-2 flex-nowrap">
+                {% if request.session.usuario %}
+                    <span class="text-white small me-1 text-nowrap">
+                        <i class="bi bi-person-check-fill text-warning me-1"></i>
+                        Hola, <strong>{{ request.session.usuario.nombre }}</strong>
+                    </span>
+                    <a href="{% url 'panel' %}" class="btn btn-sm fw-bold text-nowrap" style="background-color: #2E5A78; color: #FFFFFF;">
+                        <i class="bi bi-bag-check me-1"></i> Mis Pedidos
+                    </a>
+                    <a href="{% url 'ver_carrito' %}" class="btn btn-naranja d-flex align-items-center gap-2 text-nowrap">
+                        Carrito <span class="badge bg-white text-dark rounded-pill">{{ cantidad_carrito|default:0 }}</span>
+                    </a>
+                    <a href="{% url 'logout' %}" class="btn btn-sm btn-outline-light text-nowrap">Salir</a>
+                {% else %}
+                    <a href="{% url 'login' %}" class="text-white text-decoration-none fw-semibold me-2 text-nowrap">Iniciar sesión</a>
+                    <a href="{% url 'ver_carrito' %}" class="btn btn-naranja d-flex align-items-center gap-2 text-nowrap">
+                        Carrito <span class="badge bg-white text-dark rounded-pill">{{ cantidad_carrito|default:0 }}</span>
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="card border-0 shadow-sm rounded-3 p-4 mb-5">
+            <div class="row g-4 align-items-center">
+                <div class="col-md-5">
+                    <img src="{{ producto.imagen }}" alt="{{ producto.nombre }}" class="w-100 border rounded-3 shadow-sm" style="height: 360px; object-fit: cover;">
+                </div>
+                <div class="col-md-7">
+                    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                        <span class="badge badge-acero px-3 py-2">{{ producto.categoria }}</span>
+                        <span class="badge bg-secondary px-3 py-2">Código: {{ producto.codigo }}</span>
+                        <span class="badge bg-light text-dark border px-3 py-2">Marca: {{ producto.marca }}</span>
+                        <span class="badge bg-light text-dark border px-3 py-2">Medida / Presentación: {{ producto.medida }}</span>
+                    </div>
+
+                    <h2 class="fw-bold mb-2" style="color: #14283C;">{{ producto.nombre }}</h2>
+                    <p class="text-muted mb-3">{{ producto.especificaciones }}</p>
+
+                    <div class="p-3 rounded-3 mb-3" style="background-color: #F8F9FA; border-left: 4px solid #E66E19;">
+                        <div class="row align-items-center">
+                            <div class="col-sm-6">
+                                <span class="text-muted small d-block">Precio Unitario (IVA incluido):</span>
+                                <span class="fs-2 fw-bold" style="color: #14283C;">${{ producto.precio|floatformat:2 }}</span>
+                            </div>
+                            <div class="col-sm-6 border-start">
+                                <span class="text-muted small d-block">Precio Mayoreo (12+ unidades):</span>
+                                <span class="fs-4 fw-bold" style="color: #2E5A78;">${{ producto.precio_mayoreo|floatformat:2 }} c/u</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if request.session.usuario.rol == 'empleado' or request.session.usuario.rol == 'admin' %}
+                    <div class="alert alert-info py-2 small mb-3">
+                        <i class="bi bi-geo-alt-fill me-1"></i>
+                        <strong>Ubicación física en ferretería:</strong> {{ producto.pasillo }} — {{ producto.estanteria }}
+                    </div>
+                    {% endif %}
+
+                    <p class="mb-3">
+                        {% if producto.stock > 0 %}
+                            <i class="bi bi-check-circle-fill text-success me-1"></i>
+                            <strong>Disponibilidad en bodega:</strong> {{ producto.stock }} unidades listas para despacho
+                        {% else %}
+                            <i class="bi bi-x-circle-fill text-danger me-1"></i>
+                            <strong class="text-danger">Producto agotado temporalmente</strong>
+                        {% endif %}
+                    </p>
+
+                    <form action="{% url 'agregar_al_carrito' producto.id %}" method="POST" class="row g-3 align-items-center">
+                        {% csrf_token %}
+                        <div class="col-auto">
+                            <label class="fw-semibold" style="color: #14283C;">Cantidad:</label>
+                        </div>
+                        <div class="col-3 col-sm-2">
+                            <input type="number" name="cantidad" class="form-control text-center fw-bold" value="1" min="1" max="{{ producto.stock }}" {% if producto.stock <= 0 %}disabled{% endif %}>
+                        </div>
+                        <div class="col-12 col-sm-5">
+                            <button type="submit" class="btn btn-naranja w-100 py-2" {% if producto.stock <= 0 %}disabled{% endif %}>
+                                <i class="bi bi-cart-plus me-2"></i> Añadir al carrito
+                            </button>
+                        </div>
+                        <div class="col-12 col-sm-3">
+                            <a href="{% url 'inicio' %}" class="btn btn-outline-secondary w-100 py-2 fw-semibold">
+                                Regresar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if messages %}
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
+        {% for message in messages %}
+        <div class="alert alert-success shadow-lg d-flex align-items-center gap-2 mb-2 py-2 px-3 border-0" style="background-color: #14283C; color: #FFFFFF; border-left: 5px solid #E66E19 !important;">
+            <i class="bi bi-check-circle-fill" style="color: #E66E19;"></i>
+            <span>{{ message }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    <script>
+        setTimeout(() => {
+            document.querySelectorAll('.position-fixed .alert').forEach(el => el.remove());
+        }, 2500);
+    </script>
+    {% endif %}
+
+</body>
+</html>
