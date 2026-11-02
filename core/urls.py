@@ -24,6 +24,8 @@ urlpatterns = [
     path('panel/', views.panel_view, name='panel'),
     path('panel/producto/guardar/',
          views.guardar_producto, name='guardar_producto'),
+    path('panel/producto/eliminar/<int:producto_id>/',
+         views.eliminar_producto, name='eliminar_producto'),
     path('panel/categoria/agregar/',
          views.agregar_categoria, name='agregar_categoria'),
     path('panel/pedido/estado/<str:numero_factura>/',

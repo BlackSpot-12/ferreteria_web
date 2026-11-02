@@ -440,9 +440,15 @@
                                             <span class="badge bg-success">Óptimo</span>
                                         {% endif %}
                                     </td>
-                                    {% if rol == 'admin' %}
-                                    <td>
-                                        <a href="{% url 'panel' %}?seccion=inventario&editar_id={{ p.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
+                                   {% if rol == 'admin' %}
+                                    <td class="text-nowrap">
+                                        <div class="d-flex gap-1">
+                                            <a href="{% url 'panel' %}?seccion=inventario&editar_id={{ p.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
+                                            <form action="{% url 'eliminar_producto' p.id %}" method="POST" onsubmit="return confirm('¿Estás seguro de que deseas eliminar {{ p.nombre }} del inventario?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                            </form>
+                                        </div>
                                     </td>
                                     {% endif %}
                                 </tr>

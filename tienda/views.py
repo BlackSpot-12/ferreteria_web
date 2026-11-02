@@ -734,6 +734,25 @@ def guardar_producto(request):
     return redirect('/panel/?seccion=inventario')
 
 
+def eliminar_producto(request, producto_id):
+    usuario = request.session.get('usuario', {})
+    if request.method == 'POST' and usuario.get('rol') == 'admin':
+        producto = next(
+            (p for p in PRODUCTOS_MEMORIA if p['id'] == producto_id), None)
+        if producto:
+            nombre_prod = producto['nombre']
+            PRODUCTOS_MEMORIA[:] = [
+                p for p in PRODUCTOS_MEMORIA if p['id'] != producto_id]
+            try:
+                requests.delete(
+                    f"{API_BASE_URL}/productos/{producto_id}/", timeout=1)
+            except requests.RequestException:
+                pass
+            messages.success(
+                request, f"Producto '{nombre_prod}' eliminado correctamente del inventario.")
+    return redirect('/panel/?seccion=inventario')
+
+
 def agregar_categoria(request):
     usuario = request.session.get('usuario', {})
     if request.method == 'POST' and usuario.get('rol') == 'admin':
