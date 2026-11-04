@@ -1,929 +1,1142 @@
+import logging
 import os
-import random
+
 import requests
-from datetime import datetime
-from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.shortcuts import redirect, render
+from django.templatetags.static import static
+from django.utils.http import url_has_allowed_host_and_scheme
 
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://127.0.0.1:8001/api")
-
-CATEGORIAS_SISTEMA = [
-    "Plomería",
-    "Electricidad",
-    "Pinturas",
-    "Herramientas",
-    "Materiales de construcción",
-    "Artículos para el hogar",
-    "Muebles",
-    "Maquinaria",
-    "Tornillería y accesorios",
-]
+logger = logging.getLogger(__name__)
+API_BASE_URL = os.environ.get(
+    "API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+ROLES_WEB = {1: "admin", 2: "empleado", 3: "cliente"}
+IMAGEN_PRODUCTO_DEFAULT = "tienda/producto-generico.svg"
+METODOS_PAGO = ("Efectivo", "Tarjeta", "Transferencia")
 
 
-def obtener_imagen_articulo(articulo_wiki, url_respaldo="", lang="es"):
+def headers_api(request, extra=None):
+    headers = {}
+    usuario = request.session.get("usuario", {})
+    token = usuario.get("access_token")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def api_request(
+    request,
+    method,
+    path,
+    *,
+    authenticated=False,
+    params=None,
+    json_data=None,
+    form_data=None,
+    extra_headers=None,
+):
     try:
-        url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{articulo_wiki}"
-        respuesta = requests.get(
-            url, headers={"User-Agent": "BimetalicaWeb/1.0"}, timeout=3)
-        if respuesta.status_code == 200:
-            datos = respuesta.json()
-            if "originalimage" in datos and "source" in datos["originalimage"]:
-                return datos["originalimage"]["source"]
-            if "thumbnail" in datos and "source" in datos["thumbnail"]:
-                return datos["thumbnail"]["source"]
+        response = requests.request(
+            method,
+            f"{API_BASE_URL}{path}",
+            params=params,
+            json=json_data,
+            data=form_data,
+            headers=headers_api(request, extra_headers),
+            timeout=10,
+        )
     except requests.RequestException:
-        pass
-    return url_respaldo
+        logger.exception("Error de conexión con la API: %s %s", method, path)
+        messages.error(
+            request,
+            "No fue posible conectarse con el servicio. Inténtalo de nuevo.",
+        )
+        return None
+
+    if response.status_code == 401 and authenticated:
+        request.session.pop("usuario", None)
+        request.session["_api_session_expired"] = True
+        request.session.modified = True
+        messages.error(request, "Tu sesión expiró. Inicia sesión nuevamente.")
+        logger.warning("La API rechazó la sesión: %s %s", method, path)
+        return None
+
+    if not response.ok:
+        detail = None
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                detail = payload.get("detail")
+        except ValueError:
+            logger.warning(
+                "La API devolvió una respuesta no JSON: %s %s",
+                method,
+                path,
+            )
+        detail = detail or f"La API respondió con estado {response.status_code}."
+        logger.warning(
+            "Error de API %s %s (%s): %s",
+            method,
+            path,
+            response.status_code,
+            detail,
+        )
+        messages.error(request, str(detail))
+        return None
+    return response
 
 
-PRODUCTOS_MEMORIA = [
-    {
-        "id": 1,
-        "codigo": "HER-001",
-        "nombre": "Martillo de Acero Forjado",
-        "marca": "Truper",
-        "medida": "16 oz",
-        "categoria": "Herramientas",
-        "descripcion": "Martillo de uña curva con cabeza de acero pulido y mango ergonómico.",
-        "especificaciones": "Cabeza de acero al carbono forjado con acabado pulido anticorrosión y mango ergonómico antideslizante que reduce la vibración al golpear.",
-        "precio_compra": 8.00,
-        "precio": 12.50,
-        "precio_mayoreo": 10.50,
-        "stock": 45,
-        "stock_minimo": 10,
-        "pasillo": "Pasillo 1",
-        "estanteria": "Estante A-2",
-        "estado": "Activo",
-        "imagen": "https://images.unsplash.com/photo-1586864387967-d02ef85d93e8?auto=format&fit=crop&w=700&q=80"
-    },
-    {
-        "id": 2,
-        "codigo": "PLO-014",
-        "nombre": "Llave Mezcladora Cromada con Ducha",
-        "marca": "Helvex",
-        "medida": "Conexión 1/2 pulgada",
-        "categoria": "Plomería",
-        "descripcion": "Grifo mezclador de doble comando en acero inoxidable cromado con regadera manual.",
-        "especificaciones": "Cuerpo sólido de latón con recubrimiento de cromo brillante resistente al sarro y la corrosión. Incluye manguera flexible y ducha telefónica.",
-        "precio_compra": 22.00,
-        "precio": 34.50,
-        "precio_mayoreo": 29.90,
-        "stock": 28,
-        "stock_minimo": 8,
-        "pasillo": "Pasillo 3",
-        "estanteria": "Estante B-1",
-        "estado": "Activo",
-        "imagen": "https://tse1.mm.bing.net/th?q=Grifo+mezclador+cromado+con+ducha+regadera+manual+fondo+blanco&w=600&h=600&c=7"
-    },
-    {
-        "id": 3,
-        "codigo": "ELE-008",
-        "nombre": "Foco LED Alta Eficiencia",
-        "marca": "Sylvania",
-        "medida": "12W Rosca E27",
-        "categoria": "Electricidad",
-        "descripcion": "Bombilla LED de luz blanca fría con ahorro de energía del 85%.",
-        "especificaciones": "Temperatura de color 6500K (Luz de día), rosca estándar E27, encendido instantáneo y vida útil de 25,000 horas.",
-        "precio_compra": 1.60,
-        "precio": 2.95,
-        "precio_mayoreo": 2.40,
-        "stock": 8,
-        "stock_minimo": 15,
-        "pasillo": "Pasillo 2",
-        "estanteria": "Estante C-4",
-        "estado": "Activo",
-        "imagen": obtener_imagen_articulo("Lámpara_LED", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/LED_bulbs.jpg/640px-LED_bulbs.jpg")
-    },
-    {
-        "id": 4,
-        "codigo": "MAQ-005",
-        "nombre": "Taladro Percutor Inalámbrico",
-        "marca": "DeWalt",
-        "medida": "1/2 pulgada - 20V Max",
-        "categoria": "Maquinaria",
-        "descripcion": "Taladro rotomartillo inalámbrico DeWalt de velocidad variable y reversible.",
-        "especificaciones": "Motor sin escobillas de alto rendimiento, batería de ion de litio de 20V, mandril de ajuste rápido de 1/2 pulgada y luz LED integrada.",
-        "precio_compra": 95.00,
-        "precio": 135.00,
-        "precio_mayoreo": 122.00,
-        "stock": 4,
-        "stock_minimo": 5,
-        "pasillo": "Pasillo 1",
-        "estanteria": "Vitrina V-2",
-        "estado": "Activo",
-        "imagen": "https://images.unsplash.com/photo-1572981779307-38b8cabb2407?auto=format&fit=crop&w=700&q=80"
-    },
-    {
-        "id": 5,
-        "codigo": "TOR-012",
-        "nombre": "Juego de Llaves Combinadas",
-        "marca": "Stanley",
-        "medida": "Set 12 piezas (8mm a 19mm)",
-        "categoria": "Tornillería y accesorios",
-        "descripcion": "Juego de llaves mecánicas combinadas forjadas en acero cromo vanadio.",
-        "especificaciones": "Extremo abierto y extremo de corona de 12 puntas para mayor torque sin barrer las tuercas. Acabado cromado satinado resistente al óxido.",
-        "precio_compra": 18.50,
-        "precio": 27.90,
-        "precio_mayoreo": 24.50,
-        "stock": 19,
-        "stock_minimo": 6,
-        "pasillo": "Pasillo 1",
-        "estanteria": "Estante A-5",
-        "estado": "Activo",
-        "imagen": "https://tse1.mm.bing.net/th?q=Juego+de+Llaves+Combinadas+Stanley+12+piezas+cromo+vanadio&w=600&h=600&c=7"
-    },
-    {
-        "id": 6,
-        "codigo": "PIN-010",
-        "nombre": "Brocha Profesional de Cerda Natural",
-        "marca": "Sherwin-Williams",
-        "medida": "4 pulgadas - Uso General",
-        "categoria": "Pinturas",
-        "descripcion": "Brocha de alta retención para aplicación uniforme de pinturas acrílicas y esmaltes.",
-        "especificaciones": "Cerdas 100% naturales seleccionadas con virola de acero inoxidable y mango ergonómico de madera barnizada.",
-        "precio_compra": 3.50,
-        "precio": 6.50,
-        "precio_mayoreo": 5.25,
-        "stock": 0,
-        "stock_minimo": 6,
-        "pasillo": "Pasillo 4",
-        "estanteria": "Estante P-3",
-        "estado": "Agotado",
-        "imagen": "https://tse1.mm.bing.net/th?q=Brocha+Profesional+Sherwin+Williams+4+pulgadas&w=600&h=600&c=7"
-    },
-    {
-        "id": 7,
-        "codigo": "CON-002",
-        "nombre": "Rodillo Profesional para Construcción",
-        "marca": "Truper",
-        "medida": "9 pulgadas - Felpa 3/4\"",
-        "categoria": "Materiales de construcción",
-        "descripcion": "Rodillo antigoteo de alta densidad para superficies rugosas, concreto y block.",
-        "especificaciones": "Armazón metálico reforzado con mango ergonómico roscado para extensión y felpa tejida de alta retención para acabados en obra.",
-        "precio_compra": 3.20,
-        "precio": 5.75,
-        "precio_mayoreo": 4.80,
-        "stock": 65,
-        "stock_minimo": 15,
-        "pasillo": "Pasillo 4",
-        "estanteria": "Estante P-1",
-        "estado": "Activo",
-        "imagen": "https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=700&q=80"
-    },
-    {
-        "id": 8,
-        "codigo": "HOG-004",
-        "nombre": "Cinta Métrica Profesional Flexómetro",
-        "marca": "Pretul",
-        "medida": "5 metros (16 pies) - Cinta 3/4\"",
-        "categoria": "Artículos para el hogar",
-        "descripcion": "Flexómetro con carcasa resistente a impactos, freno de seguro y clip para cinturón.",
-        "especificaciones": "Cinta metálica graduada en centímetros y pulgadas con recubrimiento de laca para evitar el desgaste de la numeración.",
-        "precio_compra": 2.80,
-        "precio": 4.90,
-        "precio_mayoreo": 3.95,
-        "stock": 30,
-        "stock_minimo": 8,
-        "pasillo": "Pasillo 2",
-        "estanteria": "Estante H-2",
-        "estado": "Activo",
-        "imagen": obtener_imagen_articulo("Cinta_métrica", "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Tape_measure_colored.jpeg/640px-Tape_measure_colored.jpeg")
-    },
-    {
-        "id": 9,
-        "codigo": "MUE-001",
-        "nombre": "Banco de Trabajo Industrial para Taller",
-        "marca": "Urrea",
-        "medida": "150 x 75 x 85 cm (Capacidad 500 kg)",
-        "categoria": "Muebles",
-        "descripcion": "Mesa de trabajo reforzada con cubierta de madera sólida y estructura de acero.",
-        "especificaciones": "Cubierta de madera de alta densidad tratada contra humedad e impactos, estructura metálica con pintura electrostática y repisa inferior organizadora.",
-        "precio_compra": 110.00,
-        "precio": 165.00,
-        "precio_mayoreo": 149.00,
-        "stock": 6,
-        "stock_minimo": 3,
-        "pasillo": "Bodega Central",
-        "estanteria": "Área Muebles M-1",
-        "estado": "Activo",
-        "imagen": "https://tse1.mm.bing.net/th?q=Mesa+banco+de+trabajo+industrial+Urrea+cubierta+madera+estructura+acero&w=600&h=600&c=7"
+def api_failure(request, fallback):
+    if request.session.pop("_api_session_expired", False):
+        return redirect("login")
+    return fallback
+
+
+def _json_response(request, response, description):
+    try:
+        return response.json()
+    except ValueError:
+        logger.exception("Respuesta JSON inválida al %s", description)
+        messages.error(request, "El servicio devolvió una respuesta inválida.")
+        return None
+
+
+def _api_list(request, path, *, authenticated=True):
+    response = api_request(
+        request,
+        "GET",
+        path,
+        authenticated=authenticated,
+    )
+    if response is None:
+        return None
+    payload = _json_response(request, response, f"consultar {path}")
+    if payload is None:
+        return None
+    if not isinstance(payload, list):
+        logger.error("La API devolvió una lista inválida para %s", path)
+        messages.error(request, "El servicio devolvió datos con formato inválido.")
+        return None
+    return payload
+
+
+def _api_object(request, path, *, authenticated=True):
+    response = api_request(
+        request,
+        "GET",
+        path,
+        authenticated=authenticated,
+    )
+    if response is None:
+        return None
+    payload = _json_response(request, response, f"consultar {path}")
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        logger.error("La API devolvió un objeto inválido para %s", path)
+        messages.error(request, "El servicio devolvió datos con formato inválido.")
+        return None
+    return payload
+
+
+def _es_sesion_expirada(request):
+    return bool(request.session.get("_api_session_expired"))
+
+
+def _respuesta_sesion_expirada(request):
+    if _es_sesion_expirada(request):
+        return api_failure(request, redirect("login"))
+    return None
+
+
+def _require_roles(request, allowed_roles):
+    usuario = request.session.get("usuario")
+    if not usuario or not usuario.get("access_token"):
+        if usuario:
+            request.session.pop("usuario", None)
+            messages.error(request, "Inicia sesión nuevamente para continuar.")
+        return redirect("login")
+    if usuario.get("id_rol") not in allowed_roles:
+        messages.error(request, "No tienes permisos para realizar esta acción.")
+        return redirect("inicio")
+    return None
+
+
+def adaptar_producto(producto, *, categoria=None, ubicacion=None):
+    stock = producto.get("stock_actual")
+    adaptado = {
+        **producto,
+        "id": producto.get("id_producto"),
+        "precio": producto.get("precio_venta"),
+        "medida": producto.get("medida_presentacion"),
+        "descripcion": producto.get("descripcion") or "",
+        "categoria": categoria,
+        "categoria_id": producto.get("categoria_id"),
+        "imagen": producto.get("fotografia_url") or static(IMAGEN_PRODUCTO_DEFAULT),
+        "stock": stock,
+        "stock_disponible": stock is not None,
+        "stock_minimo": producto.get("stock_minimo"),
+        "pasillo": (ubicacion or {}).get("pasillo"),
+        "estanteria": (ubicacion or {}).get("estante"),
+        "ubicacion_id": producto.get("ubicacion_id"),
+        "precio_compra": producto.get("precio_compra"),
     }
-]
-USUARIOS_MEMORIA = [
-    {"id": 1, "usuario": "david", "correo": "david@ferreteria.com",
-        "password": "123", "nombre": "David", "rol": "cliente"},
-    {"id": 2, "usuario": "empleado", "correo": "empleado@bimetalica.com",
-        "password": "123", "nombre": "Carlos Rivas", "rol": "empleado"},
-    {"id": 3, "usuario": "admin", "correo": "admin@bimetalica.com",
-        "password": "123", "nombre": "Roberto Gómez", "rol": "admin"},
-]
-
-VENTAS_PEDIDOS_MEMORIA = []
+    if stock is not None:
+        adaptado["estado"] = producto.get("estado", False)
+    return adaptado
 
 
-def obtener_productos_api():
-    try:
-        respuesta = requests.get(f"{API_BASE_URL}/productos/", timeout=1)
-        if respuesta.status_code == 200:
-            datos = respuesta.json()
-            if isinstance(datos, list) and len(datos) > 0:
-                return datos
-    except requests.RequestException:
-        pass
-    return PRODUCTOS_MEMORIA
+def obtener_productos_api(request, *, categoria=None):
+    productos = []
+    offset = 0
+    limite = 100
+    while True:
+        params = {"offset": offset, "limit": limite}
+        if categoria:
+            params["categoria"] = categoria
+        respuesta = api_request(
+            request,
+            "GET",
+            "/catalogo/productos",
+            params=params,
+        )
+        if respuesta is None:
+            return None
+        pagina = _json_response(request, respuesta, "consultar el catálogo")
+        if pagina is None:
+            return None
+        if not isinstance(pagina, list):
+            logger.error("La API devolvió un catálogo con formato inesperado")
+            messages.error(request, "El servicio devolvió un catálogo inválido.")
+            return None
+        productos.extend(adaptar_producto(item) for item in pagina)
+        if len(pagina) < limite:
+            return productos
+        offset += limite
 
 
 def contar_items_carrito(request):
-    carrito = request.session.get('carrito', {})
-    return sum(item['cantidad'] for item in carrito.values())
+    carrito = request.session.get("carrito", {})
+    return sum(item.get("cantidad", 0) for item in carrito.values())
 
 
 def inicio(request):
-    usuario = request.session.get('usuario')
-    if usuario and usuario.get('rol') in ['empleado', 'admin']:
-        return redirect('panel')
+    usuario = request.session.get("usuario")
+    if usuario and usuario.get("rol") in ("empleado", "admin"):
+        return redirect("panel")
 
-    productos = obtener_productos_api()
-    busqueda = request.GET.get('q', '').strip()
-    categoria_actual = request.GET.get('categoria', '').strip()
-
-    if categoria_actual:
-        productos = [p for p in productos if p.get(
-            'categoria', '').lower() == categoria_actual.lower()]
-
+    categoria_actual = request.GET.get("categoria", "").strip()
+    productos = obtener_productos_api(request, categoria=categoria_actual or None)
+    if productos is None:
+        productos = []
+    busqueda = request.GET.get("q", "").strip()
     if busqueda:
-        q_lower = busqueda.lower()
+        consulta = busqueda.casefold()
         productos = [
-            p for p in productos
-            if q_lower in p.get('nombre', '').lower()
-            or q_lower in p.get('descripcion', '').lower()
-            or q_lower in p.get('codigo', '').lower()
-            or q_lower in p.get('marca', '').lower()
-            or q_lower in p.get('medida', '').lower()
-            or q_lower in p.get('categoria', '').lower()
+            producto for producto in productos
+            if consulta in (producto.get("nombre") or "").casefold()
+            or consulta in (producto.get("codigo") or "").casefold()
+            or consulta in (producto.get("marca") or "").casefold()
+            or consulta in (producto.get("medida") or "").casefold()
         ]
-
-    contexto = {
-        'productos': productos,
-        'categorias': CATEGORIAS_SISTEMA,
-        'busqueda': busqueda,
-        'categoria_actual': categoria_actual,
-        'cantidad_carrito': contar_items_carrito(request),
-    }
-    return render(request, 'tienda/index.html', contexto)
+    return render(
+        request,
+        "tienda/index.html",
+        {
+            "productos": productos,
+            "categorias": [],
+            "busqueda": busqueda,
+            "categoria_actual": categoria_actual,
+            "cantidad_carrito": contar_items_carrito(request),
+        },
+    )
 
 
 def detalle_producto(request, producto_id):
-    usuario = request.session.get('usuario')
-    if usuario and usuario.get('rol') in ['empleado', 'admin']:
-        return redirect('panel')
-
-    productos = obtener_productos_api()
-    producto = next((p for p in productos if p['id'] == producto_id), None)
-
-    if not producto:
-        return redirect('inicio')
-
-    contexto = {
-        'producto': producto,
-        'cantidad_carrito': contar_items_carrito(request),
-    }
-    return render(request, 'tienda/detalle.html', contexto)
+    usuario = request.session.get("usuario")
+    if usuario and usuario.get("rol") in ("empleado", "admin"):
+        return redirect("panel")
+    productos = obtener_productos_api(request)
+    if productos is None:
+        return api_failure(request, redirect("inicio"))
+    producto = next(
+        (item for item in productos if item["id"] == producto_id),
+        None,
+    )
+    if producto is None:
+        messages.error(request, "El producto no está disponible.")
+        return redirect("inicio")
+    return render(
+        request,
+        "tienda/detalle.html",
+        {
+            "producto": producto,
+            "cantidad_carrito": contar_items_carrito(request),
+        },
+    )
 
 
 def agregar_al_carrito(request, producto_id):
-    productos = obtener_productos_api()
-    producto = next((p for p in productos if p['id'] == producto_id), None)
-
-    if producto:
-        if producto.get('stock', 0) <= 0:
-            messages.error(
-                request, f"El producto {producto['nombre']} está agotado actualmente.")
-        else:
-            carrito = request.session.get('carrito', {})
-            pid_str = str(producto_id)
-            cantidad_agregar = int(request.POST.get('cantidad', 1))
-
-            if pid_str in carrito:
-                nueva_cantidad = carrito[pid_str]['cantidad'] + \
-                    cantidad_agregar
-                carrito[pid_str]['cantidad'] = min(
-                    nueva_cantidad, producto['stock'])
-                carrito[pid_str]['imagen'] = producto.get('imagen', '')
-            else:
-                carrito[pid_str] = {
-                    'id': producto['id'],
-                    'codigo': producto['codigo'],
-                    'nombre': producto['nombre'],
-                    'marca': producto.get('marca', 'General'),
-                    'medida': producto.get('medida', 'Estándar'),
-                    'categoria': producto['categoria'],
-                    'precio': float(producto['precio']),
-                    'precio_mayoreo': float(producto.get('precio_mayoreo', producto['precio'])),
-                    'stock': producto['stock'],
-                    'imagen': producto.get('imagen', ''),
-                    'cantidad': min(cantidad_agregar, producto['stock']),
-                }
-
-            request.session['carrito'] = carrito
-            request.session.modified = True
-            messages.success(
-                request, f"Se agregó {cantidad_agregar}x {producto['nombre']}.")
-
-    pagina_anterior = request.META.get('HTTP_REFERER')
-    if pagina_anterior:
-        return redirect(pagina_anterior)
-    return redirect('inicio')
+    if request.method != "POST":
+        return redirect("inicio")
+    productos = obtener_productos_api(request)
+    if productos is None:
+        return api_failure(request, redirect("ver_carrito"))
+    producto = next(
+        (item for item in productos if item["id"] == producto_id),
+        None,
+    )
+    if producto is None:
+        messages.error(request, "El producto ya no está disponible en el catálogo.")
+        return redirect("inicio")
+    try:
+        cantidad = int(request.POST.get("cantidad", 1))
+    except (TypeError, ValueError):
+        cantidad = 0
+    if cantidad <= 0:
+        messages.error(request, "La cantidad debe ser un entero positivo.")
+    else:
+        carrito = request.session.get("carrito", {})
+        clave = str(producto_id)
+        actual = carrito.get(clave, {}).get("cantidad", 0)
+        carrito[clave] = {"cantidad": actual + cantidad}
+        request.session["carrito"] = carrito
+        request.session.modified = True
+        messages.success(request, f"Se agregó {cantidad}x {producto['nombre']}.")
+    pagina_anterior = request.META.get("HTTP_REFERER")
+    return redirect(pagina_anterior or "inicio")
 
 
 def actualizar_carrito(request, producto_id):
-    if request.method == 'POST':
-        carrito = request.session.get('carrito', {})
-        pid_str = str(producto_id)
-
-        if pid_str in carrito:
-            nueva_cantidad = int(request.POST.get('cantidad', 1))
-            if nueva_cantidad > 0:
-                carrito[pid_str]['cantidad'] = min(
-                    nueva_cantidad, carrito[pid_str]['stock'])
+    if request.method == "POST":
+        carrito = request.session.get("carrito", {})
+        clave = str(producto_id)
+        if clave in carrito:
+            try:
+                cantidad = int(request.POST.get("cantidad", 1))
+            except (TypeError, ValueError):
+                cantidad = -1
+            if cantidad == 0:
+                del carrito[clave]
+            elif cantidad > 0:
+                carrito[clave]["cantidad"] = cantidad
             else:
-                del carrito[pid_str]
-            request.session['carrito'] = carrito
+                messages.error(
+                    request,
+                    "La cantidad debe ser un entero positivo o cero.",
+                )
+            request.session["carrito"] = carrito
             request.session.modified = True
-
-    pagina_anterior = request.META.get('HTTP_REFERER')
-    if pagina_anterior:
-        return redirect(pagina_anterior)
-    return redirect('ver_carrito')
+    return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
 
 
 def eliminar_del_carrito(request, producto_id):
-    carrito = request.session.get('carrito', {})
-    pid_str = str(producto_id)
-
-    if pid_str in carrito:
-        del carrito[pid_str]
-        request.session['carrito'] = carrito
-        request.session.modified = True
-
-    pagina_anterior = request.META.get('HTTP_REFERER')
-    if pagina_anterior:
-        return redirect(pagina_anterior)
-    return redirect('ver_carrito')
+    carrito = request.session.get("carrito", {})
+    carrito.pop(str(producto_id), None)
+    request.session["carrito"] = carrito
+    request.session.modified = True
+    return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
 
 
 def vaciar_carrito(request):
-    request.session['carrito'] = {}
+    request.session["carrito"] = {}
     request.session.modified = True
-
-    pagina_anterior = request.META.get('HTTP_REFERER')
-    if pagina_anterior:
-        return redirect(pagina_anterior)
-
-    usuario = request.session.get('usuario')
-    if usuario and usuario.get('rol') in ['empleado', 'admin']:
-        return redirect('panel')
-    return redirect('ver_carrito')
+    return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
 
 
-def calcular_totales_carrito(carrito, descuento_adicional=0.0):
-    items_procesados = []
-    total_bruto = 0.0
-    ahorro_mayoreo = 0.0
-
-    for item in carrito.values():
-        cantidad = item['cantidad']
-        es_mayoreo = cantidad >= 12
-        precio_aplicado = item['precio_mayoreo'] if es_mayoreo else item['precio']
-        subtotal = cantidad * precio_aplicado
-
-        if es_mayoreo:
-            ahorro_mayoreo += cantidad * \
-                (item['precio'] - item['precio_mayoreo'])
-
-        items_procesados.append({
-            **item,
-            'es_mayoreo': es_mayoreo,
-            'precio_aplicado': precio_aplicado,
-            'subtotal': subtotal,
+def calcular_totales_carrito(request, carrito):
+    productos = obtener_productos_api(request)
+    if productos is None:
+        return None
+    productos_por_id = {str(item["id"]): item for item in productos}
+    items = []
+    subtotal_estimado = 0
+    for producto_id, carrito_item in carrito.items():
+        producto = productos_por_id.get(str(producto_id))
+        cantidad = carrito_item.get("cantidad", 0)
+        if producto is None:
+            items.append({
+                "id": producto_id,
+                "cantidad": cantidad,
+                "disponible": False,
+            })
+            continue
+        subtotal = producto["precio"] * cantidad
+        subtotal_estimado += subtotal
+        items.append({
+            **producto,
+            "cantidad": cantidad,
+            "subtotal": subtotal,
+            "disponible": True,
         })
-        total_bruto += subtotal
-
-    total_pagar = max(0.0, total_bruto - descuento_adicional)
-    subtotal_sin_iva = total_pagar / 1.13 if total_pagar > 0 else 0.0
-    iva = total_pagar - subtotal_sin_iva
-
-    return {
-        'items': items_procesados,
-        'subtotal_sin_iva': subtotal_sin_iva,
-        'iva': iva,
-        'descuento_adicional': descuento_adicional,
-        'total_pagar': total_pagar,
-        'ahorro_mayoreo': ahorro_mayoreo + descuento_adicional,
-    }
+    return {"items": items, "subtotal_estimado": subtotal_estimado}
 
 
 def ver_carrito(request):
-    usuario = request.session.get('usuario')
-    if usuario and usuario.get('rol') in ['empleado', 'admin']:
-        return redirect('panel')
+    usuario = request.session.get("usuario")
+    if usuario and usuario.get("rol") in ("empleado", "admin"):
+        return redirect("panel")
+    resumen = calcular_totales_carrito(
+        request,
+        request.session.get("carrito", {}),
+    )
+    if resumen is None:
+        resumen = {"items": [], "subtotal_estimado": None}
+    return render(
+        request,
+        "tienda/carrito.html",
+        {
+            **resumen,
+            "cantidad_carrito": contar_items_carrito(request),
+        },
+    )
 
-    carrito = request.session.get('carrito', {})
-    resumen = calcular_totales_carrito(carrito)
 
-    contexto = {
-        **resumen,
-        'cantidad_carrito': contar_items_carrito(request),
+def _adaptar_factura(respuesta, venta):
+    datos = None
+    if respuesta is not None:
+        try:
+            datos = respuesta.json()
+        except ValueError:
+            logger.exception("Respuesta JSON inválida al consultar factura POS")
+    if datos is None:
+        datos = {
+            "id_factura": venta.get("id_venta"),
+            "fecha_hora": venta.get("fecha_hora"),
+            "detalles": venta.get("detalles", []),
+            "subtotal": venta.get("subtotal"),
+            "iva": venta.get("iva"),
+            "total_pagar": venta.get("total_pagar"),
+        }
+    return {
+        "emisor": datos.get("emisor"),
+        "numero_factura": datos.get("id_factura"),
+        "fecha": datos.get("fecha_hora"),
+        "tipo_cliente": datos.get("tipo_cliente"),
+        "cliente_nombre": datos.get("nombre_razon_social"),
+        "cliente_documento": datos.get("numero_documento"),
+        "cliente_correo": datos.get("correo"),
+        "cliente_telefono": datos.get("telefono"),
+        "cliente_direccion": datos.get("direccion"),
+        "metodo_pago": datos.get("metodo_pago"),
+        "items": [
+            {
+                "codigo": item.get("codigo"),
+                "nombre": item.get("nombre"),
+                "cantidad": item.get("cantidad"),
+                "precio_unitario": item.get("precio_unitario"),
+                "subtotal": item.get("subtotal"),
+            }
+            for item in datos.get("detalles", [])
+        ],
+        "subtotal": datos.get("subtotal"),
+        "iva": datos.get("iva"),
+        "total_pagar": datos.get("total_pagar"),
     }
-    return render(request, 'tienda/carrito.html', contexto)
 
 
 def generar_factura(request):
-    carrito = request.session.get('carrito', {})
+    if request.method != "POST":
+        return redirect("ver_carrito")
+    carrito = request.session.get("carrito", {})
+    if not carrito:
+        messages.error(request, "El carrito está vacío.")
+        return redirect("ver_carrito")
+    try:
+        items = [
+            {"producto_id": int(producto_id), "cantidad": int(item["cantidad"])}
+            for producto_id, item in carrito.items()
+        ]
+    except (KeyError, TypeError, ValueError):
+        logger.exception("El carrito de sesión tiene un formato inválido")
+        messages.error(request, "El carrito contiene productos inválidos.")
+        return redirect("ver_carrito")
 
-    if request.method == 'POST' and carrito:
-        cliente_nombre = request.POST.get('cliente_nombre', '').strip()
-        cliente_documento = request.POST.get('cliente_documento', '').strip()
+    usuario = request.session.get("usuario", {})
+    es_pos = request.POST.get("origen_operacion") == "Punto de Venta"
+    cliente = {
+        "tipo_cliente": request.POST.get("tipo_cliente", "Natural"),
+        "nombre_razon_social": request.POST.get("cliente_nombre", "").strip(),
+        "correo": request.POST.get(
+            "cliente_correo",
+            usuario.get("correo", ""),
+        ).strip(),
+        "telefono": request.POST.get("cliente_telefono", "").strip(),
+        "numero_documento": request.POST.get("cliente_documento", "").strip(),
+        "direccion": request.POST.get("cliente_direccion", "").strip(),
+    }
+    if any(not value for value in cliente.values()):
+        messages.error(
+            request,
+            "Completa todos los datos del cliente para continuar.",
+        )
+        return redirect("panel" if es_pos else "ver_carrito")
 
-        if not cliente_nombre or not cliente_documento:
+    if es_pos:
+        if usuario.get("id_rol") not in (1, 2):
             messages.error(
-                request, "Por favor completa el Nombre del Cliente y su DUI / NIT para emitir la factura.")
-            pagina_anterior = request.META.get('HTTP_REFERER')
-            if pagina_anterior:
-                return redirect(pagina_anterior)
-            return redirect('panel')
-
-        descuento_extra = float(request.POST.get(
-            'descuento_extra', 0.0) or 0.0)
-        resumen = calcular_totales_carrito(carrito, descuento_extra)
-
-        cliente_giro = request.POST.get('cliente_giro', '').strip()
-        cliente_direccion = request.POST.get(
-            'cliente_direccion', 'San Salvador').strip()
-        tipo_cliente = request.POST.get('tipo_cliente', 'Cliente Natural')
-        tipo_comprobante = "Crédito Fiscal" if tipo_cliente == "Cliente Jurídico" else "Consumidor Final"
-        metodo_pago = request.POST.get('metodo_pago', 'Efectivo')
-        origen_operacion = request.POST.get(
-            'origen_operacion', 'Pedido en Línea')
-
-        numero_factura = f"FAC-2026-{random.randint(10000, 99999)}"
-        fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
-
-        usuario_sesion = request.session.get('usuario', {})
-        rol_actual = usuario_sesion.get('rol', 'cliente')
-
-        estado_inicial = "Entregado / Completado" if rol_actual in [
-            'empleado', 'admin'] and origen_operacion == 'Punto de Venta' else "Pendiente de preparación"
-
-        for item in carrito.values():
-            for p in PRODUCTOS_MEMORIA:
-                if p['id'] == item['id']:
-                    p['stock'] = max(0, p['stock'] - item['cantidad'])
-                    p['estado'] = "Agotado" if p['stock'] == 0 else "Activo"
-
-        datos_factura = {
-            'numero_factura': numero_factura,
-            'fecha': fecha_actual,
-            'cliente_nombre': cliente_nombre,
-            'cliente_documento': cliente_documento,
-            'cliente_giro': cliente_giro,
-            'cliente_direccion': cliente_direccion,
-            'tipo_cliente': tipo_cliente,
-            'tipo_comprobante': tipo_comprobante,
-            'metodo_pago': metodo_pago,
-            'origen_operacion': origen_operacion,
-            'estado_pedido': estado_inicial,
-            'usuario_correo': usuario_sesion.get('correo', 'invitado'),
-            'atendido_por': usuario_sesion.get('nombre', 'Autoservicio Web'),
-            **resumen,
+                request,
+                "Solo el personal puede registrar ventas de mostrador.",
+            )
+            return redirect("login")
+        datos_facturacion = {
+            **cliente,
+            "metodo_pago": request.POST.get("metodo_pago", "Efectivo"),
         }
-
-        VENTAS_PEDIDOS_MEMORIA.insert(0, datos_factura)
-
-        try:
-            requests.post(f"{API_BASE_URL}/ventas/",
-                          json=datos_factura, timeout=1)
-        except requests.RequestException:
-            pass
-
-        request.session['ultima_factura'] = datos_factura
-        request.session['carrito'] = {}
+        respuesta = api_request(
+            request,
+            "POST",
+            "/ventas",
+            authenticated=True,
+            json_data={
+                "items": items,
+                "datos_facturacion": datos_facturacion,
+            },
+        )
+        if respuesta is None:
+            return api_failure(request, redirect("panel"))
+        venta = _json_response(request, respuesta, "registrar venta POS")
+        if not isinstance(venta, dict) or not venta.get("id_venta"):
+            logger.error("La API no confirmó el registro de la venta POS")
+            messages.error(request, "El servicio no confirmó la venta.")
+            return redirect("panel")
+        request.session["carrito"] = {}
         request.session.modified = True
+        factura_response = api_request(
+            request,
+            "GET",
+            f"/ventas/{venta['id_venta']}/factura",
+            authenticated=True,
+        )
+        sesion_expirada = _respuesta_sesion_expirada(request)
+        if sesion_expirada:
+            return sesion_expirada
+        return render(
+            request,
+            "tienda/factura.html",
+            {"factura": _adaptar_factura(factura_response, venta)},
+        )
 
-        return render(request, 'tienda/factura.html', {'factura': datos_factura})
+    if usuario and usuario.get("id_rol") != 3:
+        messages.error(request, "El personal debe usar el punto de venta.")
+        return redirect("panel")
+    es_invitado = not usuario
+    respuesta = api_request(
+        request,
+        "POST",
+        "/pedidos/invitado" if es_invitado else "/pedidos",
+        authenticated=not es_invitado,
+        json_data={"items": items, "datos_cliente": cliente},
+    )
+    if respuesta is None:
+        return api_failure(request, redirect("ver_carrito"))
+    datos = _json_response(request, respuesta, "crear pedido")
+    if not isinstance(datos, dict):
+        return redirect("ver_carrito")
+    pedido = datos.get("pedido", datos)
+    pedido_id = pedido.get("id_pedido")
+    if not pedido_id:
+        logger.error("La API no devolvió el identificador del pedido")
+        messages.error(request, "El servicio no confirmó el pedido.")
+        return redirect("ver_carrito")
+    if es_invitado:
+        access_code = datos.get("codigo_acceso")
+        if not access_code:
+            logger.error("La API no devolvió el código privado del pedido invitado")
+            messages.error(
+                request,
+                "El servicio no devolvió el código privado de consulta.",
+            )
+            return redirect("ver_carrito")
+        codigos = request.session.get("codigos_pedido_invitado", {})
+        codigos[str(pedido_id)] = access_code
+        request.session["codigos_pedido_invitado"] = codigos
+    request.session["carrito"] = {}
+    request.session.modified = True
+    messages.success(request, f"Pedido #{pedido_id} registrado.")
+    return redirect("ver_factura_guardada", numero_factura=pedido_id)
 
-    ultima_factura = request.session.get('ultima_factura')
-    if ultima_factura:
-        return render(request, 'tienda/factura.html', {'factura': ultima_factura})
 
-    return redirect('inicio')
+def _render_comprobante_pedido(request, datos, codigo_acceso=None):
+    pedido = datos.get("pedido", datos)
+    return render(
+        request,
+        "tienda/factura.html",
+        {
+            "pedido": pedido,
+            "items": datos.get("detalles", pedido.get("detalles") or []),
+            "codigo_acceso": codigo_acceso,
+            "instrucciones": datos.get("instrucciones"),
+            "iva_estimado": datos.get("iva_estimado"),
+            "total_estimado": datos.get("total_estimado"),
+        },
+    )
 
 
 def ver_factura_guardada(request, numero_factura):
-    factura = next(
-        (f for f in VENTAS_PEDIDOS_MEMORIA if f['numero_factura'] == numero_factura), None)
-    if factura:
-        return render(request, 'tienda/factura.html', {'factura': factura})
-    return redirect('panel')
+    usuario = request.session.get("usuario", {})
+    codigos = request.session.get("codigos_pedido_invitado", {})
+    codigo_acceso = codigos.get(str(numero_factura))
+    if codigo_acceso:
+        respuesta = api_request(
+            request,
+            "GET",
+            "/pedidos/consulta",
+            extra_headers={"X-Order-Access-Code": codigo_acceso},
+        )
+    elif usuario.get("access_token"):
+        try:
+            pedido_id = int(numero_factura)
+        except (TypeError, ValueError):
+            messages.error(request, "Identificador de pedido inválido.")
+            return redirect("panel")
+        pedido = _api_object(
+            request,
+            f"/pedidos/{pedido_id}",
+            authenticated=True,
+        )
+        if pedido is None:
+            return api_failure(request, redirect("panel"))
+        detalles = _api_list(
+            request,
+            f"/pedidos/{pedido_id}/detalles",
+            authenticated=True,
+        )
+        if detalles is None:
+            return api_failure(request, redirect("panel"))
+        return _render_comprobante_pedido(
+            request,
+            {"pedido": pedido, "detalles": detalles},
+        )
+    else:
+        messages.error(
+            request,
+            "No se encontró el código privado para consultar este pedido.",
+        )
+        return redirect("inicio")
+
+    if respuesta is None:
+        return api_failure(
+            request,
+            redirect("panel" if usuario else "inicio"),
+        )
+    datos = _json_response(request, respuesta, "consultar pedido invitado")
+    if not isinstance(datos, dict):
+        return redirect("inicio")
+    return _render_comprobante_pedido(request, datos, codigo_acceso)
+
+
+def consultar_pedido_invitado(request):
+    if request.method == "POST":
+        codigo_acceso = request.POST.get("codigo_acceso", "").strip()
+        if not codigo_acceso:
+            messages.error(request, "Ingresa el código privado de consulta.")
+        else:
+            respuesta = api_request(
+                request,
+                "GET",
+                "/pedidos/consulta",
+                extra_headers={"X-Order-Access-Code": codigo_acceso},
+            )
+            if respuesta is None:
+                return api_failure(
+                    request,
+                    redirect("consultar_pedido_invitado"),
+                )
+            datos = _json_response(
+                request,
+                respuesta,
+                "consultar comprobante de invitado",
+            )
+            if not isinstance(datos, dict):
+                return redirect("consultar_pedido_invitado")
+            pedido_id = datos.get("pedido", {}).get("id_pedido")
+            if pedido_id:
+                codigos = request.session.get("codigos_pedido_invitado", {})
+                codigos[str(pedido_id)] = codigo_acceso
+                request.session["codigos_pedido_invitado"] = codigos
+            return _render_comprobante_pedido(request, datos, codigo_acceso)
+    return render(request, "tienda/consulta_pedido.html")
+
+
+def _productos_panel(request, categorias, ubicaciones):
+    productos = _api_list(request, "/productos")
+    if productos is None:
+        return None
+    categorias_por_id = {
+        categoria["id_categoria"]: categoria["nombre"]
+        for categoria in categorias
+    }
+    ubicaciones_por_id = {
+        ubicacion["id_ubicacion"]: ubicacion
+        for ubicacion in ubicaciones
+    }
+    return [
+        adaptar_producto(
+            producto,
+            categoria=categorias_por_id.get(producto.get("categoria_id")),
+            ubicacion=ubicaciones_por_id.get(producto.get("ubicacion_id")),
+        )
+        for producto in productos
+    ]
+
+
+def _resumen_carrito_panel(carrito, productos):
+    productos_por_id = {str(producto["id"]): producto for producto in productos}
+    items = []
+    subtotal_estimado = 0
+    for producto_id, carrito_item in carrito.items():
+        producto = productos_por_id.get(str(producto_id))
+        cantidad = carrito_item.get("cantidad", 0)
+        if producto is None or not producto.get("estado"):
+            items.append({"id": producto_id, "cantidad": cantidad, "disponible": False})
+            continue
+        subtotal = producto["precio"] * cantidad
+        subtotal_estimado += subtotal
+        items.append({
+            **producto,
+            "cantidad": cantidad,
+            "precio_aplicado": producto["precio"],
+            "subtotal": subtotal,
+            "disponible": True,
+        })
+    return {"items": items, "subtotal_estimado": subtotal_estimado}
 
 
 def panel_view(request):
-    usuario = request.session.get('usuario')
-    if not usuario:
-        return redirect('login')
-
-    rol = usuario.get('rol', 'cliente')
-    productos = obtener_productos_api()
-    seccion = request.GET.get('seccion', '')
-
-    if rol == 'admin' and seccion == 'pos':
-        seccion = 'inventario'
-
+    usuario = request.session.get("usuario")
+    if not usuario or not usuario.get("access_token"):
+        if usuario:
+            request.session.pop("usuario", None)
+            messages.error(request, "Inicia sesión nuevamente para continuar.")
+        return redirect("login")
+    rol = usuario.get("rol")
+    permisos = {
+        "cliente": {"mis_pedidos"},
+        "empleado": {"pos", "inventario", "pedidos"},
+        "admin": {"pos", "inventario", "pedidos", "reportes", "usuarios"},
+    }
+    if rol not in permisos:
+        request.session.pop("usuario", None)
+        messages.error(request, "La sesión contiene un rol inválido. Inicia sesión.")
+        return redirect("login")
+    seccion = request.GET.get("seccion", "")
     if not seccion:
-        if rol == 'cliente':
-            seccion = 'mis_pedidos'
-        elif rol == 'empleado':
-            seccion = 'pos'
-        else:
-            seccion = 'inventario'
-
-    busqueda_inv = request.GET.get('q_inv', '').strip()
-    filtro_stock = request.GET.get('filtro_stock', '').strip()
-    productos_filtrados = productos
-
-    if busqueda_inv:
-        q_l = busqueda_inv.lower()
-        productos_filtrados = [
-            p for p in productos_filtrados
-            if q_l in p.get('codigo', '').lower()
-            or q_l in p.get('nombre', '').lower()
-            or q_l in p.get('marca', '').lower()
-            or q_l in p.get('categoria', '').lower()
-            or q_l in p.get('medida', '').lower()
-        ]
-
-    if filtro_stock == 'agotados':
-        productos_filtrados = [
-            p for p in productos_filtrados if p.get('stock', 0) <= 0]
-    elif filtro_stock == 'bajo_stock':
-        productos_filtrados = [p for p in productos_filtrados if 0 < p.get(
-            'stock', 0) <= p.get('stock_minimo', 5)]
-
-    productos_agotados = [p for p in productos if p.get('stock', 0) == 0]
-    productos_bajo_stock = [p for p in productos if 0 <
-                            p.get('stock', 0) <= p.get('stock_minimo', 5)]
-    total_por_reabastecer = len(productos_agotados) + len(productos_bajo_stock)
-
-    valor_inventario_costo = sum(
-        p.get('stock', 0) * p.get('precio_compra', 0) for p in productos)
-    valor_inventario_venta = sum(
-        p.get('stock', 0) * p.get('precio', 0) for p in productos)
-    total_ingresos_ventas = sum(v.get('total_pagar', 0)
-                                for v in VENTAS_PEDIDOS_MEMORIA)
-
-    # 1. Reporte de Inventario por Categoría
-    reporte_categorias = []
-    for cat in CATEGORIAS_SISTEMA:
-        prods_cat = [p for p in productos if p.get('categoria') == cat]
-        unidades_cat = sum(p.get('stock', 0) for p in prods_cat)
-        valor_cat = sum(p.get('stock', 0) * p.get('precio', 0)
-                        for p in prods_cat)
-        reporte_categorias.append({
-            'categoria': cat,
-            'cantidad_productos': len(prods_cat),
-            'unidades_stock': unidades_cat,
-            'valor_total': valor_cat,
-        })
-
-    # 2. Reporte de Maquinaria y Productos de Mayor Valor
-    productos_alto_valor = [
-        p for p in productos
-        if p.get('categoria') in ['Maquinaria', 'Muebles'] or p.get('precio', 0) >= 25.0
-    ]
-
-    # 3. Reporte de Productos Más Vendidos / Solicitados
-    conteo_vendidos = {}
-    for venta in VENTAS_PEDIDOS_MEMORIA:
-        for item in venta.get('items', []):
-            cid = item['codigo']
-            if cid not in conteo_vendidos:
-                conteo_vendidos[cid] = {
-                    'codigo': item['codigo'],
-                    'nombre': item['nombre'],
-                    'categoria': item.get('categoria', ''),
-                    'unidades_vendidas': 0,
-                    'ingresos_generados': 0.0,
-                }
-            conteo_vendidos[cid]['unidades_vendidas'] += item['cantidad']
-            conteo_vendidos[cid]['ingresos_generados'] += item['subtotal']
-    productos_mas_vendidos = sorted(
-        conteo_vendidos.values(),
-        key=lambda x: x['unidades_vendidas'],
-        reverse=True
-    )
-
-    mis_pedidos = [
-        v for v in VENTAS_PEDIDOS_MEMORIA
-        if v.get('usuario_correo') == usuario.get('correo') or v.get('cliente_nombre', '').lower() == usuario.get('nombre', '').lower()
-    ]
-
-    carrito = request.session.get('carrito', {})
-    resumen_carrito = calcular_totales_carrito(carrito)
-
-    producto_editar = None
-    editar_id = request.GET.get('editar_id')
-    if editar_id and rol == 'admin':
-        producto_editar = next(
-            (p for p in productos if str(p['id']) == str(editar_id)), None)
+        seccion = "mis_pedidos" if rol == "cliente" else (
+            "pos" if rol == "empleado" else "inventario"
+        )
+    if seccion not in permisos[rol]:
+        messages.error(request, "No tienes permisos para abrir esa sección.")
+        return redirect("panel")
 
     contexto = {
-        'usuario': usuario,
-        'rol': rol,
-        'seccion': seccion,
-        'productos': productos_filtrados,
-        'todos_productos': productos,
-        'categorias': CATEGORIAS_SISTEMA,
-        'busqueda_inv': busqueda_inv,
-        'filtro_stock': filtro_stock,
-        'productos_agotados': productos_agotados,
-        'productos_bajo_stock': productos_bajo_stock,
-        'total_por_reabastecer': total_por_reabastecer,
-        'valor_inventario_costo': valor_inventario_costo,
-        'valor_inventario_venta': valor_inventario_venta,
-        'total_ingresos_ventas': total_ingresos_ventas,
-        'reporte_categorias': reporte_categorias,
-        'productos_alto_valor': productos_alto_valor,
-        'productos_mas_vendidos': productos_mas_vendidos,
-        'ventas_pedidos': VENTAS_PEDIDOS_MEMORIA,
-        'mis_pedidos': mis_pedidos,
-        'usuarios_sistema': USUARIOS_MEMORIA,
-        'resumen_carrito': resumen_carrito,
-        'cantidad_carrito': contar_items_carrito(request),
-        'producto_editar': producto_editar,
+        "usuario": usuario,
+        "rol": rol,
+        "seccion": seccion,
+        "productos": [],
+        "todos_productos": [],
+        "categorias": [],
+        "ubicaciones": [],
+        "busqueda_inv": request.GET.get("q_inv", "").strip(),
+        "filtro_stock": request.GET.get("filtro_stock", "").strip(),
+        "productos_agotados": [],
+        "productos_bajo_stock": [],
+        "productos_alto_valor": [],
+        "total_por_reabastecer": 0,
+        "valor_inventario_costo": 0,
+        "valor_inventario_venta": 0,
+        "total_ingresos_ventas": 0,
+        "reporte_categorias": [],
+        "productos_mas_vendidos": [],
+        "ventas_pedidos": [],
+        "mis_pedidos": [],
+        "resumen_carrito": {"items": [], "subtotal_estimado": 0},
+        "cantidad_carrito": contar_items_carrito(request),
+        "producto_editar": None,
     }
-    return render(request, 'tienda/panel.html', contexto)
+
+    if rol == "cliente":
+        pedidos = _api_list(request, "/pedidos")
+        if pedidos is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["mis_pedidos"] = pedidos
+        return render(request, "tienda/panel.html", contexto)
+
+    categorias = _api_list(request, "/categorias")
+    if categorias is None:
+        expired = _respuesta_sesion_expirada(request)
+        if expired:
+            return expired
+        categorias = []
+    ubicaciones = _api_list(request, "/ubicaciones")
+    if ubicaciones is None:
+        expired = _respuesta_sesion_expirada(request)
+        if expired:
+            return expired
+        ubicaciones = []
+    productos = _productos_panel(request, categorias, ubicaciones)
+    if productos is None:
+        expired = _respuesta_sesion_expirada(request)
+        if expired:
+            return expired
+        productos = []
+
+    contexto["categorias"] = categorias
+    contexto["ubicaciones"] = ubicaciones
+    contexto["todos_productos"] = productos
+    contexto["resumen_carrito"] = _resumen_carrito_panel(
+        request.session.get("carrito", {}),
+        productos,
+    )
+    productos_visibles = [
+        producto for producto in productos
+        if seccion != "pos" or producto.get("estado")
+    ]
+    busqueda = contexto["busqueda_inv"].casefold()
+    if busqueda:
+        productos_visibles = [
+            producto for producto in productos_visibles
+            if busqueda in (producto.get("codigo") or "").casefold()
+            or busqueda in (producto.get("nombre") or "").casefold()
+            or busqueda in (producto.get("marca") or "").casefold()
+            or busqueda in (producto.get("categoria") or "").casefold()
+            or busqueda in (producto.get("medida") or "").casefold()
+        ]
+    if contexto["filtro_stock"] == "agotados":
+        productos_visibles = [
+            producto for producto in productos_visibles
+            if producto.get("estado") and producto.get("stock", 0) <= 0
+        ]
+    elif contexto["filtro_stock"] == "bajo_stock":
+        productos_visibles = [
+            producto for producto in productos_visibles
+            if producto.get("estado")
+            and 0 < producto.get("stock", 0) <= producto.get("stock_minimo", 0)
+        ]
+    contexto["productos"] = productos_visibles
+    contexto["productos_agotados"] = [
+        producto for producto in productos
+        if producto.get("estado") and producto.get("stock", 0) <= 0
+    ]
+    contexto["productos_bajo_stock"] = [
+        producto for producto in productos
+        if producto.get("estado")
+        and 0 < producto.get("stock", 0) <= producto.get("stock_minimo", 0)
+    ]
+    contexto["total_por_reabastecer"] = (
+        len(contexto["productos_agotados"])
+        + len(contexto["productos_bajo_stock"])
+    )
+    contexto["valor_inventario_costo"] = sum(
+        producto.get("stock", 0) * (producto.get("precio_compra") or 0)
+        for producto in productos
+        if producto.get("estado")
+    )
+    contexto["valor_inventario_venta"] = sum(
+        producto.get("stock", 0) * (producto.get("precio") or 0)
+        for producto in productos
+        if producto.get("estado")
+    )
+    contexto["productos_alto_valor"] = [
+        producto for producto in productos
+        if producto.get("estado") and (producto.get("precio") or 0) >= 25
+    ]
+    editar_id = request.GET.get("editar_id")
+    if editar_id:
+        contexto["producto_editar"] = next(
+            (producto for producto in productos if str(producto["id"]) == editar_id),
+            None,
+        )
+
+    if seccion == "pedidos":
+        pedidos = _api_list(request, "/pedidos")
+        if pedidos is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["ventas_pedidos"] = pedidos
+
+    if seccion == "reportes":
+        inventario = _api_object(request, "/reportes/inventario")
+        if inventario is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["valor_inventario_costo"] = inventario.get(
+                "valor_inventario_compra", 0
+            )
+            contexto["valor_inventario_venta"] = inventario.get(
+                "valor_inventario_venta", 0
+            )
+            contexto["reporte_categorias"] = [
+                {
+                    "categoria": fila.get("categoria"),
+                    "cantidad_productos": fila.get("productos"),
+                    "unidades_stock": fila.get("unidades"),
+                    "valor_total": fila.get("valor_venta"),
+                }
+                for fila in inventario.get("por_categoria", [])
+            ]
+        ventas = _api_object(request, "/reportes/ventas")
+        if ventas is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["total_ingresos_ventas"] = ventas.get("ingresos", 0)
+            contexto["productos_mas_vendidos"] = [
+                {
+                    "codigo": fila.get("codigo"),
+                    "nombre": fila.get("nombre"),
+                    "categoria": None,
+                    "unidades_vendidas": fila.get("cantidad_vendida"),
+                    "ingresos_generados": fila.get("ingresos"),
+                }
+                for fila in ventas.get("productos_mas_vendidos", [])
+            ]
+
+    return render(request, "tienda/panel.html", contexto)
 
 
 def guardar_producto(request):
-    usuario = request.session.get('usuario', {})
-    if request.method == 'POST' and usuario.get('rol') == 'admin':
-        prod_id = request.POST.get('producto_id', '').strip()
-        codigo = request.POST.get('codigo', '').strip()
-        nombre = request.POST.get('nombre', '').strip()
-        marca = request.POST.get('marca', '').strip()
-        medida = request.POST.get('medida', '').strip()
-        categoria = request.POST.get('categoria', 'Herramientas').strip()
-        descripcion = request.POST.get('descripcion', '').strip()
-        precio_compra = float(request.POST.get('precio_compra', 0) or 0)
-        precio = float(request.POST.get('precio', 0) or 0)
-        precio_mayoreo = float(request.POST.get(
-            'precio_mayoreo', precio) or precio)
-        stock = int(request.POST.get('stock', 0) or 0)
-        stock_minimo = int(request.POST.get('stock_minimo', 5) or 5)
-        pasillo = request.POST.get('pasillo', '').strip()
-        estanteria = request.POST.get('estanteria', '').strip()
-        imagen = request.POST.get('imagen', '').strip(
-        ) or "https://images.unsplash.com/photo-1586864387967-d02ef85d93e8?auto=format&fit=crop&w=700&q=80"
-        estado = "Agotado" if stock <= 0 else "Activo"
-
-        datos_prod = {
-            "codigo": codigo,
-            "nombre": nombre,
-            "marca": marca,
-            "medida": medida,
-            "categoria": categoria,
-            "descripcion": descripcion,
-            "especificaciones": descripcion,
-            "precio_compra": precio_compra,
-            "precio": precio,
-            "precio_mayoreo": precio_mayoreo,
-            "stock": stock,
-            "stock_minimo": stock_minimo,
-            "pasillo": pasillo,
-            "estanteria": estanteria,
-            "estado": estado,
-            "imagen": imagen,
+    denegado = _require_roles(request, (1, 2))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=inventario")
+    producto_id = request.POST.get("producto_id", "").strip()
+    try:
+        payload = {
+            "codigo": request.POST.get("codigo", "").strip(),
+            "nombre": request.POST.get("nombre", "").strip(),
+            "marca": request.POST.get("marca", "").strip() or None,
+            "medida_presentacion": request.POST.get("medida", "").strip() or None,
+            "descripcion": request.POST.get("descripcion", "").strip() or None,
+            "precio_compra": request.POST.get("precio_compra", "").strip(),
+            "precio_venta": request.POST.get("precio_venta", "").strip(),
+            "stock_actual": int(request.POST.get("stock_actual", "0")),
+            "stock_minimo": int(request.POST.get("stock_minimo", "0")),
+            "estado": request.POST.get("estado") == "on",
+            "fotografia_url": request.POST.get("fotografia_url", "").strip() or None,
+            "categoria_id": int(request.POST.get("categoria_id", "")),
+            "ubicacion_id": int(request.POST.get("ubicacion_id", "")),
         }
+        if producto_id:
+            int(producto_id)
+    except (TypeError, ValueError):
+        messages.error(request, "Revisa los valores numéricos del producto.")
+        return redirect("/panel/?seccion=inventario")
 
-        if prod_id:
-            for p in PRODUCTOS_MEMORIA:
-                if str(p['id']) == str(prod_id):
-                    p.update(datos_prod)
-                    break
-            try:
-                requests.put(f"{API_BASE_URL}/productos/{prod_id}/",
-                             json=datos_prod, timeout=1)
-            except requests.RequestException:
-                pass
-            messages.success(
-                request, f"Producto {nombre} actualizado correctamente.")
-        else:
-            nuevo_id = max([p['id'] for p in PRODUCTOS_MEMORIA], default=0) + 1
-            datos_prod['id'] = nuevo_id
-            PRODUCTOS_MEMORIA.append(datos_prod)
-            try:
-                requests.post(f"{API_BASE_URL}/productos/",
-                              json=datos_prod, timeout=1)
-            except requests.RequestException:
-                pass
-            messages.success(
-                request, f"Producto {nombre} registrado en el inventario.")
-
-    return redirect('/panel/?seccion=inventario')
+    method = "PUT" if producto_id else "POST"
+    path = f"/productos/{producto_id}" if producto_id else "/productos"
+    response = api_request(
+        request,
+        method,
+        path,
+        authenticated=True,
+        json_data=payload,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=inventario"))
+    messages.success(
+        request,
+        "Producto guardado correctamente en la API.",
+    )
+    return redirect("/panel/?seccion=inventario")
 
 
 def eliminar_producto(request, producto_id):
-    usuario = request.session.get('usuario', {})
-    if request.method == 'POST' and usuario.get('rol') == 'admin':
-        producto = next(
-            (p for p in PRODUCTOS_MEMORIA if p['id'] == producto_id), None)
-        if producto:
-            nombre_prod = producto['nombre']
-            PRODUCTOS_MEMORIA[:] = [
-                p for p in PRODUCTOS_MEMORIA if p['id'] != producto_id]
-            try:
-                requests.delete(
-                    f"{API_BASE_URL}/productos/{producto_id}/", timeout=1)
-            except requests.RequestException:
-                pass
-            messages.success(
-                request, f"Producto '{nombre_prod}' eliminado correctamente del inventario.")
-    return redirect('/panel/?seccion=inventario')
+    denegado = _require_roles(request, (1, 2))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=inventario")
+    response = api_request(
+        request,
+        "DELETE",
+        f"/productos/{producto_id}",
+        authenticated=True,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=inventario"))
+    messages.success(request, "Producto eliminado del inventario.")
+    return redirect("/panel/?seccion=inventario")
 
 
 def agregar_categoria(request):
-    usuario = request.session.get('usuario', {})
-    if request.method == 'POST' and usuario.get('rol') == 'admin':
-        nueva_cat = request.POST.get('nombre_categoria', '').strip()
-        if nueva_cat and nueva_cat not in CATEGORIAS_SISTEMA:
-            CATEGORIAS_SISTEMA.append(nueva_cat)
-            try:
-                requests.post(f"{API_BASE_URL}/categorias/",
-                              json={"nombre": nueva_cat}, timeout=1)
-            except requests.RequestException:
-                pass
-            messages.success(
-                request, f"Categoría '{nueva_cat}' agregada al sistema.")
-    return redirect('/panel/?seccion=inventario')
+    denegado = _require_roles(request, (1, 2))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=inventario")
+    nombre = request.POST.get("nombre_categoria", "").strip()
+    response = api_request(
+        request,
+        "POST",
+        "/categorias",
+        authenticated=True,
+        json_data={"nombre": nombre},
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=inventario"))
+    messages.success(request, f"Categoría '{nombre}' agregada.")
+    return redirect("/panel/?seccion=inventario")
 
 
 def cambiar_estado_pedido(request, numero_factura):
-    usuario = request.session.get('usuario', {})
-    if request.method == 'POST' and usuario.get('rol') in ['empleado', 'admin']:
-        nuevo_estado = request.POST.get('estado_pedido', 'En preparación')
-        for pedido in VENTAS_PEDIDOS_MEMORIA:
-            if pedido['numero_factura'] == numero_factura:
-                pedido['estado_pedido'] = nuevo_estado
-                try:
-                    requests.put(f"{API_BASE_URL}/ventas/{numero_factura}/",
-                                 json={"estado_pedido": nuevo_estado}, timeout=1)
-                except requests.RequestException:
-                    pass
-                messages.success(
-                    request, f"Estado de {numero_factura} actualizado a: {nuevo_estado}.")
-                break
-    return redirect('/panel/?seccion=pedidos')
+    denegado = _require_roles(request, (1, 2))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=pedidos")
+    try:
+        pedido_id = int(numero_factura)
+    except (TypeError, ValueError):
+        messages.error(request, "Identificador de pedido inválido.")
+        return redirect("/panel/?seccion=pedidos")
+    estado = request.POST.get("estado_pedido", "")
+    if estado == "Entregado":
+        metodo_pago = request.POST.get("metodo_pago", "")
+        if metodo_pago not in METODOS_PAGO:
+            messages.error(request, "Selecciona un método de pago válido.")
+            return redirect("/panel/?seccion=pedidos")
+        method = "POST"
+        path = f"/pedidos/{pedido_id}/entregar"
+        payload = {"metodo_pago": metodo_pago}
+    elif estado in ("En preparacion", "Listo"):
+        method = "PUT"
+        path = f"/pedidos/{pedido_id}"
+        payload = {"estado": estado}
+    else:
+        messages.error(request, "Selecciona una transición de pedido válida.")
+        return redirect("/panel/?seccion=pedidos")
+    response = api_request(
+        request,
+        method,
+        path,
+        authenticated=True,
+        json_data=payload,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=pedidos"))
+    if estado == "Entregado":
+        venta = _json_response(request, response, "cobrar y entregar pedido")
+        if isinstance(venta, dict):
+            messages.success(
+                request,
+                f"Pedido entregado. Venta #{venta.get('id_venta')} por "
+                f"${venta.get('total_pagar')}.",
+            )
+    else:
+        messages.success(request, f"Estado del pedido #{pedido_id} actualizado.")
+    return redirect("/panel/?seccion=pedidos")
 
 
 def guardar_usuario(request):
-    usuario = request.session.get('usuario', {})
-    if request.method == 'POST' and usuario.get('rol') == 'admin':
-        nombre = request.POST.get('nombre', '').strip()
-        correo = request.POST.get('correo', '').strip()
-        username = request.POST.get('usuario', '').strip()
-        password = request.POST.get('password', '123').strip()
-        rol = request.POST.get('rol', 'empleado').strip()
-
-        nuevo_id = max([u['id'] for u in USUARIOS_MEMORIA], default=0) + 1
-        nuevo_usr = {
-            "id": nuevo_id,
-            "usuario": username or correo.split('@')[0],
-            "correo": correo,
-            "password": password,
-            "nombre": nombre,
-            "rol": rol,
-        }
-        USUARIOS_MEMORIA.append(nuevo_usr)
-        try:
-            requests.post(f"{API_BASE_URL}/usuarios/",
-                          json=nuevo_usr, timeout=1)
-        except requests.RequestException:
-            pass
-        messages.success(
-            request, f"Usuario {nombre} ({rol}) registrado exitosamente.")
-    return redirect('/panel/?seccion=usuarios')
+    denegado = _require_roles(request, (1,))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=usuarios")
+    payload = {
+        "Nombres": request.POST.get("Nombres", "").strip(),
+        "apellidos": request.POST.get("apellidos", "").strip(),
+        "correo": request.POST.get("correo", "").strip(),
+        "password": request.POST.get("password", ""),
+        "rol_id": 2,
+    }
+    response = api_request(
+        request,
+        "POST",
+        "/usuarios",
+        authenticated=True,
+        json_data=payload,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=usuarios"))
+    messages.success(request, "Empleado creado correctamente.")
+    return redirect("/panel/?seccion=usuarios")
 
 
 def login_view(request):
-    next_url = request.GET.get('next') or request.POST.get('next') or ''
-
-    if request.method == 'POST':
-        credencial = request.POST.get('credencial', '').strip()
-        password = request.POST.get('password', '').strip()
-
-        usuario_autenticado = None
-
-        try:
-            respuesta = requests.post(
-                f"{API_BASE_URL}/login/",
-                json={"correo": credencial,
-                      "usuario": credencial, "password": password},
-                timeout=1
-            )
-            if respuesta.status_code == 200:
-                datos_api = respuesta.json()
-                usuario_autenticado = {
-                    'id': datos_api.get('id', 1),
-                    'nombre': datos_api.get('nombre', credencial.split('@')[0].capitalize()),
-                    'correo': datos_api.get('correo', credencial),
-                    'rol': datos_api.get('rol', 'cliente'),
-                }
-        except requests.RequestException:
-            pass
-
-        if not usuario_autenticado:
-            for u in USUARIOS_MEMORIA:
-                if (credencial.lower() == u['correo'].lower() or credencial.lower() == u['usuario'].lower()) and password == u['password']:
-                    usuario_autenticado = {
-                        'id': u['id'],
-                        'nombre': u['nombre'],
-                        'correo': u['correo'],
-                        'rol': u['rol'],
-                    }
-                    break
-
-        if usuario_autenticado:
-            request.session['carrito'] = {}
-            request.session['usuario'] = usuario_autenticado
+    next_url = request.GET.get("next") or request.POST.get("next") or ""
+    if request.method == "POST":
+        correo = request.POST.get("correo", "").strip()
+        password = request.POST.get("password", "")
+        respuesta = api_request(
+            request,
+            "POST",
+            "/auth/login",
+            form_data={"username": correo, "password": password},
+        )
+        if respuesta is not None:
+            datos_api = _json_response(request, respuesta, "iniciar sesión")
+            if not isinstance(datos_api, dict):
+                return render(request, "tienda/login.html", {"next": next_url})
+            rol_id = datos_api.get("id_rol")
+            token = datos_api.get("access_token")
+            if rol_id not in ROLES_WEB or not token:
+                logger.error("La API devolvió datos incompletos al iniciar sesión")
+                messages.error(request, "El servicio no devolvió una sesión válida.")
+                return render(request, "tienda/login.html", {"next": next_url})
+            usuario = {
+                "access_token": token,
+                "token_type": datos_api.get("token_type", "bearer"),
+                "id_rol": rol_id,
+                "nombre": datos_api.get("nombre", ""),
+                "correo": datos_api.get("correo", correo),
+                "rol": ROLES_WEB[rol_id],
+            }
+            request.session.cycle_key()
+            request.session["usuario"] = usuario
             request.session.modified = True
-            messages.success(
-                request, f"Bienvenido, {usuario_autenticado['nombre']}.")
-            if usuario_autenticado['rol'] in ['empleado', 'admin']:
-                return redirect('panel')
-            if next_url:
+            messages.success(request, f"Bienvenido, {usuario['nombre']}.")
+            if usuario["rol"] in ("empleado", "admin"):
+                return redirect("panel")
+            if next_url and url_has_allowed_host_and_scheme(
+                next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            ):
                 return redirect(next_url)
-            return redirect('inicio')
-        else:
-            messages.error(
-                request, "Credenciales incorrectas. Verifica tu usuario y contraseña.")
-
-    return render(request, 'tienda/login.html', {'next': next_url})
+            return redirect("inicio")
+    return render(request, "tienda/login.html", {"next": next_url})
 
 
 def logout_view(request):
-    if 'usuario' in request.session:
-        del request.session['usuario']
-    request.session['carrito'] = {}
+    request.session.pop("usuario", None)
+    request.session.pop("_api_session_expired", None)
     request.session.modified = True
     messages.info(request, "Has cerrado sesión correctamente.")
-    return redirect('inicio')
+    return redirect("inicio")
 
 
 def registro_view(request):
-    if request.method == 'POST':
-        nombre = request.POST.get('nombre', '').strip()
-        correo = request.POST.get('correo', '').strip()
-        usuario = request.POST.get(
-            'usuario', '').strip() or correo.split('@')[0]
-        password = request.POST.get('password', '').strip()
-
-        existe = any(
-            u['correo'].lower() == correo.lower(
-            ) or u['usuario'].lower() == usuario.lower()
-            for u in USUARIOS_MEMORIA
+    if request.method == "POST":
+        payload = {
+            "Nombres": request.POST.get("Nombres", "").strip(),
+            "apellidos": request.POST.get("apellidos", "").strip(),
+            "correo": request.POST.get("correo", "").strip(),
+            "password": request.POST.get("password", ""),
+        }
+        respuesta = api_request(
+            request,
+            "POST",
+            "/usuarios/registro",
+            json_data=payload,
         )
-        if existe:
-            messages.error(
-                request, "Ese correo o nombre de usuario ya está registrado.")
-            return render(request, 'tienda/registro.html')
-
-        nuevo_id = max([u['id'] for u in USUARIOS_MEMORIA], default=0) + 1
-        nuevo_cliente = {
-            "id": nuevo_id,
-            "usuario": usuario,
-            "correo": correo,
-            "password": password,
-            "nombre": nombre,
-            "rol": "cliente",
-        }
-        USUARIOS_MEMORIA.append(nuevo_cliente)
-
-        try:
-            requests.post(f"{API_BASE_URL}/usuarios/",
-                          json=nuevo_cliente, timeout=1)
-        except requests.RequestException:
-            pass
-
-        request.session['usuario'] = {
-            'id': nuevo_cliente['id'],
-            'nombre': nuevo_cliente['nombre'],
-            'correo': nuevo_cliente['correo'],
-            'rol': 'cliente',
-        }
-        request.session.modified = True
-        messages.success(
-            request, f"¡Cuenta creada con éxito! Bienvenido, {nombre}.")
-        return redirect('inicio')
-
-    return render(request, 'tienda/registro.html')
+        if respuesta is not None:
+            messages.success(
+                request,
+                "Cuenta creada. Inicia sesión con tu correo.",
+            )
+            return redirect("login")
+    return render(request, "tienda/registro.html")

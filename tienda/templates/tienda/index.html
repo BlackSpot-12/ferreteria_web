@@ -162,24 +162,30 @@
                     <div class="card card-producto shadow-sm">
                         <div class="position-relative border-bottom">
                             <img src="{{ p.imagen }}" class="img-producto" alt="{{ p.nombre }}">
-                            {% if p.stock <= 0 %}
-                                <span class="badge bg-danger position-absolute top-0 end-0 m-2">Agotado</span>
-                            {% else %}
+                            {% if p.stock_disponible %}
                                 <span class="badge bg-dark bg-opacity-75 position-absolute bottom-0 end-0 m-2">Disponible: {{ p.stock }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary position-absolute bottom-0 end-0 m-2">Disponibilidad por confirmar</span>
                             {% endif %}
                         </div>
 
                         <div class="card-body d-flex flex-column p-3">
                             <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="badge" style="background-color: #2E5A78;">{{ p.categoria }}</span>
+                                {% if p.categoria %}
+                                    <span class="badge" style="background-color: #2E5A78;">{{ p.categoria }}</span>
+                                {% endif %}
                                 <small class="text-muted fw-semibold">{{ p.codigo }}</small>
                             </div>
 
                             <h5 class="card-title fw-bold mb-1" style="color: #14283C;">{{ p.nombre }}</h5>
-                            <p class="small text-muted mb-2">
-                                <strong>Marca:</strong> {{ p.marca }} | <strong>Medida:</strong> {{ p.medida }}
-                            </p>
-                            <p class="card-text small text-secondary flex-grow-1">{{ p.descripcion }}</p>
+                            {% if p.marca or p.medida %}
+                                <p class="small text-muted mb-2">
+                                    {% if p.marca %}<strong>Marca:</strong> {{ p.marca }}{% endif %}
+                                    {% if p.marca and p.medida %} | {% endif %}
+                                    {% if p.medida %}<strong>Medida:</strong> {{ p.medida }}{% endif %}
+                                </p>
+                            {% endif %}
+                            {% if p.descripcion %}<p class="card-text small text-secondary flex-grow-1">{{ p.descripcion }}</p>{% endif %}
 
                             <h4 class="fw-bold my-3" style="color: #14283C;">${{ p.precio|floatformat:2 }}</h4>
 
@@ -190,7 +196,7 @@
                                 <form action="{% url 'agregar_al_carrito' p.id %}" method="POST" class="w-50">
                                     {% csrf_token %}
                                     <input type="hidden" name="cantidad" value="1">
-                                    <button type="submit" class="btn btn-naranja btn-sm w-100 py-2" {% if p.stock <= 0 %}disabled{% endif %}>
+                                    <button type="submit" class="btn btn-naranja btn-sm w-100 py-2">
                                         <i class="bi bi-cart-plus me-1"></i> Añadir
                                     </button>
                                 </form>

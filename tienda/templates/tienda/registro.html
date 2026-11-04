@@ -43,10 +43,18 @@
             <form action="{% url 'registro' %}" method="POST">
                 {% csrf_token %}
                 <div class="mb-3">
-                    <label class="form-label text-secondary small fw-semibold">Nombre Completo</label>
+                    <label class="form-label text-secondary small fw-semibold">Nombres</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-person-badge-fill"></i></span>
-                        <input type="text" name="nombre" class="form-control" placeholder="Ej. Juan Pérez" required>
+                        <input type="text" name="Nombres" class="form-control" placeholder="Ej. Juan Carlos" required>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-secondary small fw-semibold">Apellidos</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person-badge-fill"></i></span>
+                        <input type="text" name="apellidos" class="form-control" placeholder="Ej. Pérez López" required>
                     </div>
                 </div>
 
@@ -55,14 +63,6 @@
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-envelope-fill"></i></span>
                         <input type="email" name="correo" class="form-control" placeholder="correo@ejemplo.com" required>
-                    </div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label text-secondary small fw-semibold">Nombre de Usuario</label>
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="bi bi-person-fill"></i></span>
-                        <input type="text" name="usuario" class="form-control" placeholder="Ej. juanperez" required>
                     </div>
                 </div>
 

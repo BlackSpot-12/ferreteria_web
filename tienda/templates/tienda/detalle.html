@@ -54,40 +54,36 @@
                 </div>
                 <div class="col-md-7">
                     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-                        <span class="badge badge-acero px-3 py-2">{{ producto.categoria }}</span>
+                        {% if producto.categoria %}<span class="badge badge-acero px-3 py-2">{{ producto.categoria }}</span>{% endif %}
                         <span class="badge bg-secondary px-3 py-2">Código: {{ producto.codigo }}</span>
-                        <span class="badge bg-light text-dark border px-3 py-2">Marca: {{ producto.marca }}</span>
-                        <span class="badge bg-light text-dark border px-3 py-2">Medida / Presentación: {{ producto.medida }}</span>
+                        {% if producto.marca %}<span class="badge bg-light text-dark border px-3 py-2">Marca: {{ producto.marca }}</span>{% endif %}
+                        {% if producto.medida %}<span class="badge bg-light text-dark border px-3 py-2">Medida / Presentación: {{ producto.medida }}</span>{% endif %}
                     </div>
 
                     <h2 class="fw-bold mb-2" style="color: #14283C;">{{ producto.nombre }}</h2>
-                    <p class="text-muted mb-3">{{ producto.especificaciones }}</p>
+                    {% if producto.descripcion %}<p class="text-muted mb-3">{{ producto.descripcion }}</p>{% endif %}
 
                     <div class="row align-items-center bg-light p-3 rounded-3 mb-4 border-start border-4" style="border-color: #E66E19 !important;">
                             <div class="col-sm-6 border-end">
                                 <small class="text-muted d-block">Precio Unitario (IVA incluido):</small>
                                 <span class="fs-2 fw-bold" style="color: #14283C;">${{ producto.precio|floatformat:2 }}</span>
                             </div>
-                            <div class="col-sm-6 ps-sm-4 mt-2 mt-sm-0">
-                                <small class="text-muted d-block">Precio Mayoreo (12+ unidades):</small>
-                                <span class="fs-4 fw-bold" style="color: #2E5A78;">${{ producto.precio_mayoreo|floatformat:2 }}</span>
-                            </div>
                         </div>
 
-                    {% if request.session.usuario.rol == 'empleado' or request.session.usuario.rol == 'admin' %}
+                    {% if producto.pasillo or producto.estanteria %}
                     <div class="alert alert-info py-2 small mb-3">
                         <i class="bi bi-geo-alt-fill me-1"></i>
-                        <strong>Ubicación física en ferretería:</strong> {{ producto.pasillo }} — {{ producto.estanteria }}
+                        <strong>Ubicación física en ferretería:</strong> {{ producto.pasillo }} {{ producto.estanteria }}
                     </div>
                     {% endif %}
 
                     <p class="mb-3">
-                        {% if producto.stock > 0 %}
+                        {% if producto.stock_disponible %}
                             <i class="bi bi-check-circle-fill text-success me-1"></i>
                             <strong>Disponibilidad en bodega:</strong> {{ producto.stock }} unidades listas para despacho
                         {% else %}
-                            <i class="bi bi-x-circle-fill text-danger me-1"></i>
-                            <strong class="text-danger">Producto agotado temporalmente</strong>
+                            <i class="bi bi-info-circle-fill text-secondary me-1"></i>
+                            <strong>La disponibilidad se confirma al procesar el pedido.</strong>
                         {% endif %}
                     </p>
 
@@ -97,10 +93,10 @@
                             <label class="fw-semibold" style="color: #14283C;">Cantidad:</label>
                         </div>
                         <div class="col-3 col-sm-2">
-                            <input type="number" name="cantidad" class="form-control text-center fw-bold" value="1" min="1" max="{{ producto.stock }}" {% if producto.stock <= 0 %}disabled{% endif %}>
+                            <input type="number" name="cantidad" class="form-control text-center fw-bold" value="1" min="1">
                         </div>
                         <div class="col-12 col-sm-5">
-                            <button type="submit" class="btn btn-naranja w-100 py-2" {% if producto.stock <= 0 %}disabled{% endif %}>
+                            <button type="submit" class="btn btn-naranja w-100 py-2">
                                 <i class="bi bi-cart-plus me-2"></i> Añadir al carrito
                             </button>
                         </div>

@@ -64,7 +64,7 @@
                 </li>
             {% endif %}
 
-            {% if rol == 'empleado' %}
+            {% if rol == 'empleado' or rol == 'admin' %}
                 <li class="nav-item">
                     <a class="nav-link {% if seccion == 'pos' %}active{% endif %}" href="{% url 'panel' %}?seccion=pos">
                         <i class="bi bi-calculator me-1"></i> Punto de Venta (POS)
@@ -85,7 +85,7 @@
                 </li>
             {% endif %}
 
-            {% if rol == 'admin' %}
+            {% if rol != 'cliente' %}
                 <li class="nav-item">
                     <a class="nav-link {% if seccion == 'reportes' %}active{% endif %}" href="{% url 'panel' %}?seccion=reportes">
                         <i class="bi bi-bar-chart-line me-1"></i> Reportes Gerenciales
@@ -107,10 +107,10 @@
                     <table class="table align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>N° Documento</th>
+                                <th>N° Pedido</th>
                                 <th>Fecha</th>
-                                <th>Tipo</th>
-                                <th>Total</th>
+                                <th>Tipo de cliente</th>
+                                <th>Monto del pedido</th>
                                 <th>Estado del Pedido</th>
                                 <th class="text-end">Comprobante</th>
                             </tr>
@@ -118,15 +118,15 @@
                         <tbody>
                             {% for ped in mis_pedidos %}
                             <tr>
-                                <td class="fw-bold">{{ ped.numero_factura }}</td>
-                                <td>{{ ped.fecha }}</td>
-                                <td>{{ ped.tipo_comprobante }}</td>
-                                <td class="fw-bold">${{ ped.total_pagar|floatformat:2 }}</td>
+                                <td class="fw-bold">{{ ped.id_pedido }}</td>
+                                <td>{{ ped.fecha_hora }}</td>
+                                <td>{{ ped.tipo_cliente }}</td>
+                                <td class="fw-bold">${{ ped.total_pedido|floatformat:2 }}</td>
                                 <td>
-                                    <span class="badge bg-info text-dark">{{ ped.estado_pedido }}</span>
+                                    <span class="badge bg-info text-dark">{{ ped.estado }}</span>
                                 </td>
                                 <td class="text-end">
-                                    <a href="{% url 'ver_factura_guardada' ped.numero_factura %}" class="btn btn-sm btn-naranja">Ver Factura</a>
+                                    <a href="{% url 'ver_factura_guardada' ped.id_pedido %}" class="btn btn-sm btn-naranja">Ver comprobante</a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -139,7 +139,7 @@
         </div>
         {% endif %}
 
-        {% if seccion == 'pos' and rol == 'empleado' %}
+        {% if seccion == 'pos' and rol != 'cliente' %}
         <div class="row g-4">
             <div class="col-lg-7">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
@@ -168,10 +168,14 @@
                                 <tr>
                                     <td>
                                         <strong>{{ p.codigo }}</strong> - {{ p.nombre }}
-                                        <div class="text-muted">{{ p.marca }} | {{ p.medida }}</div>
+                                        {% if p.marca or p.medida %}
+                                            <div class="text-muted">{% if p.marca %}{{ p.marca }}{% endif %}{% if p.marca and p.medida %} | {% endif %}{% if p.medida %}{{ p.medida }}{% endif %}</div>
+                                        {% endif %}
                                     </td>
                                     <td>
-                                        <span class="badge bg-light text-dark border">{{ p.pasillo }} / {{ p.estanteria }}</span>
+                                        {% if p.pasillo or p.estanteria %}
+                                            <span class="badge bg-light text-dark border">{{ p.pasillo }} / {{ p.estanteria }}</span>
+                                        {% else %}—{% endif %}
                                     </td>
                                     <td>
                                         {% if p.stock <= 0 %}
@@ -214,7 +218,7 @@
                             {% for item in resumen_carrito.items %}
                             <li class="list-group-item d-flex justify-content-between align-items-center px-0">
                                 <div>
-                                    <strong>{{ item.cantidad }}x</strong> {{ item.nombre }} ({{ item.medida }})
+                                    <strong>{{ item.cantidad }}x</strong> {{ item.nombre }}{% if item.medida %} ({{ item.medida }}){% endif %}
                                     <div class="text-muted">${{ item.precio_aplicado|floatformat:2 }} c/u</div>
                                 </div>
                                 <div class="d-flex align-items-center gap-2">
@@ -226,18 +230,11 @@
                         </ul>
 
                         <div class="bg-light p-3 rounded mb-3 small">
-                            <div class="d-flex justify-content-between mb-1">
-                                <span>Subtotal sin IVA:</span>
-                                <span>${{ resumen_carrito.subtotal_sin_iva|floatformat:2 }}</span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-1">
-                                <span>IVA (13%):</span>
-                                <span>${{ resumen_carrito.iva|floatformat:2 }}</span>
-                            </div>
                             <div class="d-flex justify-content-between fw-bold fs-5 mt-2 pt-2 border-top" style="color: #E66E19;">
-                                <span>Total Venta:</span>
-                                <span>${{ resumen_carrito.total_pagar|floatformat:2 }}</span>
+                                <span>Subtotal estimado:</span>
+                                <span>${{ resumen_carrito.subtotal_estimado|floatformat:2 }}</span>
                             </div>
+                            <small class="text-muted">El total oficial lo devuelve la API al registrar la venta.</small>
                         </div>
 
                         <form action="{% url 'generar_factura' %}" method="POST">
@@ -247,13 +244,9 @@
                                 <div class="col-6">
                                     <label class="form-label small fw-semibold">Tipo de Cliente</label>
                                     <select name="tipo_cliente" class="form-select form-select-sm">
-                                        <option value="Cliente Natural">Cliente Natural</option>
-                                        <option value="Cliente Jurídico">Cliente Jurídico (Empresa)</option>
+                                        <option value="Natural">Cliente Natural</option>
+                                        <option value="Juridico">Cliente Jurídico (Empresa)</option>
                                     </select>
-                                </div>
-                                <div class="col-6">
-                                    <label class="form-label small fw-semibold">Descuento Extra ($)</label>
-                                    <input type="number" step="0.01" name="descuento_extra" value="0.00" min="0" class="form-control form-control-sm">
                                 </div>
                             </div>
                             <div class="mb-2">
@@ -266,6 +259,16 @@
                                     <input type="text" name="cliente_documento" class="form-control form-control-sm" placeholder="Ej. 0614-000000-000-0" required>
                                 </div>
                                 <div class="col-6">
+                                    <label class="form-label small fw-semibold">Correo electrónico <span class="text-danger">*</span></label>
+                                    <input type="email" name="cliente_correo" class="form-control form-control-sm" required>
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label class="form-label small fw-semibold">Teléfono <span class="text-danger">*</span></label>
+                                    <input type="tel" name="cliente_telefono" class="form-control form-control-sm" required>
+                                </div>
+                                <div class="col-6">
                                     <label class="form-label small fw-semibold">Método de Pago</label>
                                     <select name="metodo_pago" class="form-select form-select-sm">
                                         <option value="Efectivo">Efectivo</option>
@@ -274,7 +277,10 @@
                                     </select>
                                 </div>
                             </div>
-                            <input type="hidden" name="cliente_direccion" value="Venta en Sucursal Bimetálica">
+                            <div class="mb-3">
+                                <label class="form-label small fw-semibold">Dirección <span class="text-danger">*</span></label>
+                                <input type="text" name="cliente_direccion" value="Venta en sucursal" class="form-control form-control-sm" required>
+                            </div>
                             <button type="submit" class="btn btn-naranja w-100 py-2">
                                 <i class="bi bi-printer me-1"></i> Cobrar y Emitir Factura
                             </button>
@@ -289,7 +295,7 @@
 
         {% if seccion == 'inventario' and rol != 'cliente' %}
         <div class="row g-4">
-            {% if rol == 'admin' %}
+            {% if rol != 'cliente' %}
             <div class="col-lg-4">
                 <div class="card border-0 shadow-sm rounded-3 p-4 mb-4">
                     <h5 class="fw-bold mb-3" style="color: #14283C;">
@@ -305,9 +311,9 @@
                             </div>
                             <div class="col-7">
                                 <label class="form-label fw-semibold">Categoría</label>
-                                <select name="categoria" class="form-select form-select-sm">
+                                <select name="categoria_id" class="form-select form-select-sm" required>
                                     {% for cat in categorias %}
-                                        <option value="{{ cat }}" {% if producto_editar.categoria == cat %}selected{% endif %}>{{ cat }}</option>
+                                        <option value="{{ cat.id_categoria }}" {% if producto_editar.categoria_id == cat.id_categoria %}selected{% endif %}>{{ cat.nombre }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -319,11 +325,11 @@
                         <div class="row g-2 mb-2">
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Marca</label>
-                                <input type="text" name="marca" class="form-control form-control-sm" value="{{ producto_editar.marca|default:'' }}" required>
+                                <input type="text" name="marca" class="form-control form-control-sm" value="{{ producto_editar.marca|default:'' }}">
                             </div>
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Medida / Presentación</label>
-                                <input type="text" name="medida" class="form-control form-control-sm" value="{{ producto_editar.medida|default:'' }}" required>
+                                <input type="text" name="medida" class="form-control form-control-sm" value="{{ producto_editar.medida|default:'' }}">
                             </div>
                         </div>
                         <div class="row g-2 mb-2">
@@ -333,40 +339,38 @@
                             </div>
                             <div class="col-4">
                                 <label class="form-label fw-semibold">P. Venta ($)</label>
-                                <input type="number" step="0.01" name="precio" class="form-control form-control-sm" value="{{ producto_editar.precio|default:'0.00' }}" required>
-                            </div>
-                            <div class="col-4">
-                                <label class="form-label fw-semibold">Mayoreo ($)</label>
-                                <input type="number" step="0.01" name="precio_mayoreo" class="form-control form-control-sm" value="{{ producto_editar.precio_mayoreo|default:'0.00' }}" required>
+                                <input type="number" step="0.01" name="precio_venta" class="form-control form-control-sm" value="{{ producto_editar.precio_venta|default:'0.00' }}" required>
                             </div>
                         </div>
                         <div class="row g-2 mb-2">
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Existencia Actual</label>
-                                <input type="number" name="stock" class="form-control form-control-sm" value="{{ producto_editar.stock|default:'10' }}" required>
+                                <input type="number" name="stock_actual" class="form-control form-control-sm" value="{{ producto_editar.stock_actual|default:'0' }}" required>
                             </div>
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Stock Mínimo</label>
                                 <input type="number" name="stock_minimo" class="form-control form-control-sm" value="{{ producto_editar.stock_minimo|default:'5' }}" required>
                             </div>
                         </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-6">
-                                <label class="form-label fw-semibold">Pasillo</label>
-                                <input type="text" name="pasillo" class="form-control form-control-sm" value="{{ producto_editar.pasillo|default:'Pasillo 1' }}" required>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label fw-semibold">Estantería / Área</label>
-                                <input type="text" name="estanteria" class="form-control form-control-sm" value="{{ producto_editar.estanteria|default:'Estante A-1' }}" required>
-                            </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Ubicación</label>
+                            <select name="ubicacion_id" class="form-select form-select-sm" required>
+                                {% for ubicacion in ubicaciones %}
+                                    <option value="{{ ubicacion.id_ubicacion }}" {% if producto_editar.ubicacion_id == ubicacion.id_ubicacion %}selected{% endif %}>{{ ubicacion.pasillo }} / {{ ubicacion.estante }} / {{ ubicacion.nivel }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="mb-2">
                             <label class="form-label fw-semibold">URL de Fotografía</label>
-                            <input type="text" name="imagen" class="form-control form-control-sm" value="{{ producto_editar.imagen|default:'' }}" placeholder="https://...">
+                            <input type="url" name="fotografia_url" class="form-control form-control-sm" value="{{ producto_editar.fotografia_url|default:'' }}" placeholder="https://...">
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-semibold">Descripción</label>
-                            <textarea name="descripcion" rows="2" class="form-control form-control-sm" required>{{ producto_editar.descripcion|default:'' }}</textarea>
+                            <textarea name="descripcion" rows="2" class="form-control form-control-sm">{{ producto_editar.descripcion|default:'' }}</textarea>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input type="checkbox" name="estado" class="form-check-input" id="productoEstado" {% if not producto_editar or producto_editar.estado %}checked{% endif %}>
+                            <label for="productoEstado" class="form-check-label">Producto activo</label>
                         </div>
                         <button type="submit" class="btn btn-naranja w-100 py-2">Guardar Producto</button>
                     </form>
@@ -383,7 +387,7 @@
             </div>
             {% endif %}
 
-            <div class="{% if rol == 'admin' %}col-lg-8{% else %}col-12{% endif %}">
+            <div class="{% if rol != 'cliente' %}col-lg-8{% else %}col-12{% endif %}">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                         <h5 class="fw-bold mb-0" style="color: #14283C;">Control de Inventario y Ubicaciones</h5>
@@ -411,7 +415,7 @@
                                     <th>Precio Venta</th>
                                     <th>Existencias</th>
                                     <th>Estado</th>
-                                    {% if rol == 'admin' %}<th>Acción</th>{% endif %}
+                                    {% if rol != 'cliente' %}<th>Acción</th>{% endif %}
                                 </tr>
                             </thead>
                             <tbody>
@@ -420,11 +424,13 @@
                                     <td class="fw-bold">{{ p.codigo }}</td>
                                     <td>
                                         <strong>{{ p.nombre }}</strong>
-                                        <div class="text-muted">{{ p.marca }} | {{ p.medida }} ({{ p.categoria }})</div>
+                                        <div class="text-muted">{% if p.marca %}{{ p.marca }}{% endif %}{% if p.marca and p.medida %} | {% endif %}{% if p.medida %}{{ p.medida }}{% endif %}{% if p.categoria %} ({{ p.categoria }}){% endif %}</div>
                                     </td>
                                     <td>
-                                        <span class="fw-semibold">{{ p.pasillo }}</span>
-                                        <div class="text-muted">{{ p.estanteria }}</div>
+                                        {% if p.pasillo or p.estanteria %}
+                                            <span class="fw-semibold">{{ p.pasillo }}</span>
+                                            <div class="text-muted">{{ p.estanteria }}</div>
+                                        {% else %}—{% endif %}
                                     </td>
                                     <td class="fw-bold">${{ p.precio|floatformat:2 }}</td>
                                     <td>
@@ -432,7 +438,9 @@
                                         <div class="text-muted" style="font-size: 0.75rem;">Mín: {{ p.stock_minimo }}</div>
                                     </td>
                                     <td>
-                                        {% if p.stock <= 0 %}
+                                        {% if not p.estado %}
+                                            <span class="badge bg-secondary">Inactivo</span>
+                                        {% elif p.stock <= 0 %}
                                             <span class="badge bg-danger">Agotado</span>
                                         {% elif p.stock <= p.stock_minimo %}
                                             <span class="badge bg-warning text-dark">Reabastecer</span>
@@ -440,7 +448,7 @@
                                             <span class="badge bg-success">Óptimo</span>
                                         {% endif %}
                                     </td>
-                                   {% if rol == 'admin' %}
+                                   {% if rol != 'cliente' %}
                                     <td class="text-nowrap">
                                         <div class="d-flex gap-1">
                                             <a href="{% url 'panel' %}?seccion=inventario&editar_id={{ p.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
@@ -463,46 +471,58 @@
 
         {% if seccion == 'pedidos' and rol != 'cliente' %}
         <div class="card border-0 shadow-sm rounded-3 p-4">
-            <h5 class="fw-bold mb-3" style="color: #14283C;">Gestión de Pedidos de Clientes y Registro de Ventas</h5>
+            <h5 class="fw-bold mb-3" style="color: #14283C;">Gestión de pedidos WEB</h5>
             {% if ventas_pedidos %}
                 <div class="table-responsive">
                     <table class="table align-middle small">
                         <thead class="table-light">
                             <tr>
-                                <th>Documento</th>
+                                <th>N° Pedido</th>
                                 <th>Fecha</th>
                                 <th>Cliente / Tipo</th>
-                                <th>Origen</th>
-                                <th>Total</th>
+                                <th>Cuenta</th>
+                                <th>Monto del pedido</th>
                                 <th>Estado de Preparación</th>
-                                <th class="text-end">Factura</th>
+                                <th class="text-end">Comprobante</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for v in ventas_pedidos %}
                             <tr>
-                                <td class="fw-bold">{{ v.numero_factura }}</td>
-                                <td>{{ v.fecha }}</td>
+                                <td class="fw-bold">{{ v.id_pedido }}</td>
+                                <td>{{ v.fecha_hora }}</td>
                                 <td>
-                                    <strong>{{ v.cliente_nombre }}</strong>
-                                    <div class="text-muted">{{ v.tipo_cliente }} ({{ v.tipo_comprobante }})</div>
+                                    <strong>{{ v.nombre_cliente }}</strong>
+                                    <div class="text-muted">{{ v.tipo_cliente }} · {{ v.correo_cliente }}</div>
                                 </td>
-                                <td>{{ v.origen_operacion }}</td>
-                                <td class="fw-bold">${{ v.total_pagar|floatformat:2 }}</td>
+                                <td>{% if v.usuario_id %}Cliente{% else %}Invitado{% endif %}</td>
+                                <td class="fw-bold">${{ v.total_pedido|floatformat:2 }}</td>
                                 <td>
-                                    <form action="{% url 'cambiar_estado_pedido' v.numero_factura %}" method="POST" class="d-flex gap-1">
+                                    {% if v.estado != 'Entregado' %}
+                                    <form action="{% url 'cambiar_estado_pedido' v.id_pedido %}" method="POST" class="d-flex flex-column gap-1">
                                         {% csrf_token %}
-                                        <select name="estado_pedido" class="form-select form-select-sm" style="width: 170px;">
-                                            <option value="Pendiente de preparación" {% if v.estado_pedido == 'Pendiente de preparación' %}selected{% endif %}>Pendiente de preparación</option>
-                                            <option value="En preparación" {% if v.estado_pedido == 'En preparación' %}selected{% endif %}>En preparación</option>
-                                            <option value="Listo para entrega" {% if v.estado_pedido == 'Listo para entrega' %}selected{% endif %}>Listo para entrega</option>
-                                            <option value="Entregado / Completado" {% if v.estado_pedido == 'Entregado / Completado' %}selected{% endif %}>Entregado / Completado</option>
+                                        <select name="estado_pedido" class="form-select form-select-sm">
+                                            {% if v.estado == 'Pendiente' %}
+                                                <option value="En preparacion">En preparación</option>
+                                            {% elif v.estado == 'En preparacion' %}
+                                                <option value="Listo">Listo para entrega</option>
+                                            {% elif v.estado == 'Listo' %}
+                                                <option value="Entregado">Cobrar y entregar</option>
+                                            {% endif %}
                                         </select>
-                                        <button type="submit" class="btn btn-sm btn-outline-success">Guardar</button>
+                                        {% if v.estado == 'Listo' %}
+                                            <select name="metodo_pago" class="form-select form-select-sm">
+                                                <option value="Efectivo">Efectivo</option>
+                                                <option value="Tarjeta">Tarjeta</option>
+                                                <option value="Transferencia">Transferencia</option>
+                                            </select>
+                                        {% endif %}
+                                        <button type="submit" class="btn btn-sm btn-outline-success">{% if v.estado == 'Listo' %}Registrar pago{% else %}Guardar estado{% endif %}</button>
                                     </form>
+                                    {% else %}<span class="badge bg-success">Entregado</span>{% endif %}
                                 </td>
                                 <td class="text-end">
-                                    <a href="{% url 'ver_factura_guardada' v.numero_factura %}" class="btn btn-sm btn-naranja">Ver Factura</a>
+                                    <a href="{% url 'ver_factura_guardada' v.id_pedido %}" class="btn btn-sm btn-naranja">Ver pedido</a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -510,7 +530,7 @@
                     </table>
                 </div>
             {% else %}
-                <p class="text-muted mb-0">Aún no se han registrado pedidos ni ventas en esta sesión.</p>
+                <p class="text-muted mb-0">No hay pedidos registrados.</p>
             {% endif %}
         </div>
         {% endif %}
@@ -699,27 +719,24 @@
                     <form action="{% url 'guardar_usuario' %}" method="POST" class="small">
                         {% csrf_token %}
                         <div class="mb-2">
-                            <label class="form-label fw-semibold">Nombre Completo</label>
-                            <input type="text" name="nombre" class="form-control form-control-sm" required>
+                            <label class="form-label fw-semibold">Nombres</label>
+                            <input type="text" name="Nombres" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Apellidos</label>
+                            <input type="text" name="apellidos" class="form-control form-control-sm" required>
                         </div>
                         <div class="mb-2">
                             <label class="form-label fw-semibold">Correo Electrónico</label>
                             <input type="email" name="correo" class="form-control form-control-sm" required>
                         </div>
                         <div class="mb-2">
-                            <label class="form-label fw-semibold">Usuario</label>
-                            <input type="text" name="usuario" class="form-control form-control-sm" required>
-                        </div>
-                        <div class="mb-2">
                             <label class="form-label fw-semibold">Contraseña</label>
-                            <input type="password" name="password" class="form-control form-control-sm" value="123" required>
+                            <input type="password" name="password" class="form-control form-control-sm" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label fw-semibold">Nivel de Acceso (Rol)</label>
-                            <select name="rol" class="form-select form-select-sm">
-                                <option value="empleado">Empleado</option>
-                                <option value="admin">Propietario / Administrador</option>
-                            </select>
+                            <label class="form-label fw-semibold">Rol asignado</label>
+                            <input type="text" class="form-control form-control-sm" value="Empleado" disabled>
                         </div>
                         <button type="submit" class="btn btn-naranja w-100 py-2">Crear Usuario</button>
                     </form>
@@ -728,26 +745,7 @@
             <div class="col-md-8">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <h5 class="fw-bold mb-3" style="color: #14283C;">Usuarios del Sistema y Niveles de Acceso</h5>
-                    <table class="table table-bordered small align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Nombre</th>
-                                <th>Usuario</th>
-                                <th>Correo</th>
-                                <th>Rol Asignado</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for u in usuarios_sistema %}
-                            <tr>
-                                <td class="fw-bold">{{ u.nombre }}</td>
-                                <td>{{ u.usuario }}</td>
-                                <td>{{ u.correo }}</td>
-                                <td><span class="badge bg-secondary text-uppercase">{{ u.rol }}</span></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    <p class="text-muted mb-0">El endpoint actual permite crear empleados, pero no ofrece un listado de usuarios. No se muestran datos locales simulados.</p>
                 </div>
             </div>
         </div>

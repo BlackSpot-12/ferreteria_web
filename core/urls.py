@@ -21,6 +21,8 @@ urlpatterns = [
     path('factura/', views.generar_factura, name='generar_factura'),
     path('factura/<str:numero_factura>/',
          views.ver_factura_guardada, name='ver_factura_guardada'),
+    path('pedido/consulta/', views.consultar_pedido_invitado,
+         name='consultar_pedido_invitado'),
     path('panel/', views.panel_view, name='panel'),
     path('panel/producto/guardar/',
          views.guardar_producto, name='guardar_producto'),
