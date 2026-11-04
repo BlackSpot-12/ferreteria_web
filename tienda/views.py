@@ -74,7 +74,7 @@ PRODUCTOS_MEMORIA = [
         "pasillo": "Pasillo 3",
         "estanteria": "Estante B-1",
         "estado": "Activo",
-        "imagen": "https://images.unsplash.com/photo-1585704032915-c3400ca199e7?auto=format&fit=crop&w=700&q=80"
+        "imagen": "https://tse1.mm.bing.net/th?q=Grifo+mezclador+cromado+con+ducha+regadera+manual+fondo+blanco&w=600&h=600&c=7"
     },
     {
         "id": 3,
@@ -131,7 +131,7 @@ PRODUCTOS_MEMORIA = [
         "pasillo": "Pasillo 1",
         "estanteria": "Estante A-5",
         "estado": "Activo",
-        "imagen": obtener_imagen_articulo("Llave_(herramienta)", "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Spanners_metric.jpg/640px-Spanners_metric.jpg")
+        "imagen": "https://tse1.mm.bing.net/th?q=Juego+de+Llaves+Combinadas+Stanley+12+piezas+cromo+vanadio&w=600&h=600&c=7"
     },
     {
         "id": 6,
@@ -150,7 +150,7 @@ PRODUCTOS_MEMORIA = [
         "pasillo": "Pasillo 4",
         "estanteria": "Estante P-3",
         "estado": "Agotado",
-        "imagen": obtener_imagen_articulo("Paintbrush", "https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=700&q=80", lang="en")
+        "imagen": "https://tse1.mm.bing.net/th?q=Brocha+Profesional+Sherwin+Williams+4+pulgadas&w=600&h=600&c=7"
     },
     {
         "id": 7,
@@ -207,10 +207,9 @@ PRODUCTOS_MEMORIA = [
         "pasillo": "Bodega Central",
         "estanteria": "Área Muebles M-1",
         "estado": "Activo",
-        "imagen": obtener_imagen_articulo("Workbench", "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Workbench.jpg/640px-Workbench.jpg", lang="en")
+        "imagen": "https://tse1.mm.bing.net/th?q=Mesa+banco+de+trabajo+industrial+Urrea+cubierta+madera+estructura+acero&w=600&h=600&c=7"
     }
 ]
-
 USUARIOS_MEMORIA = [
     {"id": 1, "usuario": "david", "correo": "david@ferreteria.com",
         "password": "123", "nombre": "David", "rol": "cliente"},

@@ -63,18 +63,16 @@
                     <h2 class="fw-bold mb-2" style="color: #14283C;">{{ producto.nombre }}</h2>
                     <p class="text-muted mb-3">{{ producto.especificaciones }}</p>
 
-                    <div class="p-3 rounded-3 mb-3" style="background-color: #F8F9FA; border-left: 4px solid #E66E19;">
-                        <div class="row align-items-center">
-                            <div class="col-sm-6">
-                                <span class="text-muted small d-block">Precio Unitario (IVA incluido):</span>
+                    <div class="row align-items-center bg-light p-3 rounded-3 mb-4 border-start border-4" style="border-color: #E66E19 !important;">
+                            <div class="col-sm-6 border-end">
+                                <small class="text-muted d-block">Precio Unitario (IVA incluido):</small>
                                 <span class="fs-2 fw-bold" style="color: #14283C;">${{ producto.precio|floatformat:2 }}</span>
                             </div>
-                            <div class="col-sm-6 border-start">
-                                <span class="text-muted small d-block">Precio Mayoreo (12+ unidades):</span>
-                                <span class="fs-4 fw-bold" style="color: #2E5A78;">${{ producto.precio_mayoreo|floatformat:2 }} c/u</span>
+                            <div class="col-sm-6 ps-sm-4 mt-2 mt-sm-0">
+                                <small class="text-muted d-block">Precio Mayoreo (12+ unidades):</small>
+                                <span class="fs-4 fw-bold" style="color: #2E5A78;">${{ producto.precio_mayoreo|floatformat:2 }}</span>
                             </div>
                         </div>
-                    </div>
 
                     {% if request.session.usuario.rol == 'empleado' or request.session.usuario.rol == 'admin' %}
                     <div class="alert alert-info py-2 small mb-3">

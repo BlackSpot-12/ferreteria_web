@@ -4,24 +4,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bimetálica - Ferretería Industrial</title>
+    <title>Catálogo - Ferretería Industrial Bimetálica</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        body { background-color: #F4F3EF; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+        body {
+            background-color: #F4F3EF;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
         .bg-petroleo { background-color: #14283C; }
         .bg-acero { background-color: #2E5A78; }
         .btn-naranja { background-color: #E66E19; color: #FFFFFF; border: none; font-weight: 600; }
         .btn-naranja:hover { background-color: #cf5f10; color: #FFFFFF; }
-        .badge-acero { background-color: #2E5A78; color: #FFFFFF; font-weight: 600; }
-        .search-input { background-color: #102030; border: 1px solid #3A506B; color: #FFFFFF; }
-        .search-input::placeholder { color: #A0AAB4; }
-        .search-input:focus { background-color: #102030; color: #FFFFFF; border-color: #E66E19; box-shadow: none; }
-        .card-producto { border: none; border-radius: 8px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; }
-        .card-producto:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(20, 40, 60, 0.12) !important; }
-        .img-producto { width: 100%; height: 190px; object-fit: contain; background-color: #FFFFFF; padding: 10px; }
-        .cat-link { color: #FFFFFF; text-decoration: none; font-weight: 600; padding: 5px 12px; border-radius: 6px; font-size: 0.9rem; }
-        .cat-link:hover, .cat-link.activo { background-color: rgba(255, 255, 255, 0.18); color: #FFFFFF; }
+        .btn-naranja:disabled { background-color: #e5e7eb; color: #9ca3af; }
+        .search-input {
+            background-color: #0f2030;
+            border: 1px solid #2E5A78;
+            color: #FFFFFF;
+        }
+        .search-input::placeholder { color: #9ca3af; }
+        .search-input:focus {
+            background-color: #0f2030;
+            color: #FFFFFF;
+            border-color: #E66E19;
+            box-shadow: none;
+        }
+        .form-buscador { width: 40%; }
+        .cat-link {
+            color: #FFFFFF;
+            text-decoration: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .cat-link:hover, .cat-link.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: #FFFFFF;
+        }
+        .card-producto {
+            border: none;
+            border-radius: 10px;
+            overflow: hidden;
+            background-color: #FFFFFF;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .img-producto {
+            width: 100%;
+            height: 190px;
+            object-fit: contain;
+            background-color: #FFFFFF;
+            padding: 10px;
+        }
+        @media (max-width: 991.98px) {
+            .navbar .container {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            .navbar-brand img {
+                height: 60px;
+            }
+            .form-buscador {
+                width: 100%;
+                order: 3;
+                margin: 4px 0 0 0 !important;
+            }
+            .acciones-usuario {
+                order: 2;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+            .nav-categorias {
+                flex-wrap: nowrap !important;
+                justify-content: flex-start !important;
+                overflow-x: auto;
+                padding-bottom: 4px;
+                -webkit-overflow-scrolling: touch;
+            }
+        }
     </style>
 </head>
 <body>
@@ -32,7 +98,7 @@
                 <img src="{% static 'tienda/logo.png' %}" alt="Logo Bimetálica" height="80">
             </a>
 
-            <form action="{% url 'inicio' %}" method="GET" class="d-flex mx-auto my-2 my-lg-0" style="width: 40%;">
+            <form action="{% url 'inicio' %}" method="GET" class="d-flex mx-auto my-2 my-lg-0 form-buscador">
                 {% if categoria_actual %}
                     <input type="hidden" name="categoria" value="{{ categoria_actual }}">
                 {% endif %}
@@ -40,7 +106,7 @@
                 <button class="btn btn-naranja px-4" type="submit">Buscar</button>
             </form>
 
-            <div class="d-flex align-items-center gap-2 flex-nowrap">
+            <div class="d-flex align-items-center gap-2 acciones-usuario">
                 {% if request.session.usuario %}
                     <span class="text-white small me-1 text-nowrap">
                         <i class="bi bi-person-check-fill text-warning me-1"></i>
@@ -64,111 +130,104 @@
     </nav>
 
     <div class="bg-acero py-2 shadow-sm">
-        <div class="container d-flex justify-content-center gap-2 flex-wrap">
-            <a href="{% url 'inicio' %}" class="cat-link {% if not categoria_actual %}activo{% endif %}">Todas</a>
-            {% for cat in categorias %}
-                <a href="{% url 'inicio' %}?categoria={{ cat }}" class="cat-link {% if categoria_actual == cat %}activo{% endif %}">{{ cat }}</a>
-            {% endfor %}
+        <div class="container">
+            <div class="d-flex justify-content-center align-items-center gap-2 flex-wrap nav-categorias">
+                <a href="{% url 'inicio' %}{% if busqueda %}?q={{ busqueda }}{% endif %}" class="cat-link {% if not categoria_actual %}active{% endif %}">
+                    Todas
+                </a>
+                {% for cat in categorias %}
+                    <a href="{% url 'inicio' %}?categoria={{ cat|urlencode }}{% if busqueda %}&q={{ busqueda }}{% endif %}" class="cat-link {% if categoria_actual == cat %}active{% endif %}">
+                        {{ cat }}
+                    </a>
+                {% endfor %}
+            </div>
         </div>
     </div>
 
-    <div class="container my-5 flex-grow-1">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="fw-bold mb-0" style="color: #14283C;">
-                {% if categoria_actual %}
-                    Categoría: {{ categoria_actual }}
-                {% elif busqueda %}
-                    Resultados para "{{ busqueda }}"
-                {% else %}
-                    Catálogo de Productos
-                {% endif %}
-            </h2>
-            {% if categoria_actual or busqueda %}
-                <a href="{% url 'inicio' %}" class="btn btn-sm btn-outline-secondary">Ver todo el catálogo</a>
-            {% endif %}
-        </div>
+    <div class="container my-4 flex-grow-1">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} py-2 small shadow-sm">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
 
-        <div class="row g-4">
-            {% for p in productos %}
-            <div class="col-12 col-sm-6 col-lg-3">
-                <div class="card card-producto shadow-sm h-100">
-                    <a href="{% url 'detalle_producto' p.id %}" class="text-decoration-none position-relative">
-                        <img src="{{ p.imagen }}" alt="{{ p.nombre }}" class="img-producto border-bottom">
-                        {% if p.stock <= 0 %}
-                            <span class="badge bg-danger position-absolute top-0 end-0 m-2">Agotado</span>
-                        {% else %}
-                            <span class="badge bg-dark bg-opacity-75 position-absolute bottom-0 end-0 m-2">Disponible: {{ p.stock }}</span>
-                        {% endif %}
-                    </a>
-                    <div class="card-body d-flex flex-column">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="badge badge-acero">{{ p.categoria }}</span>
-                            <small class="text-muted fw-semibold">{{ p.codigo }}</small>
+        <h3 class="fw-bold mb-4" style="color: #14283C;">Catálogo de Productos</h3>
+
+        {% if productos %}
+            <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
+                {% for p in productos %}
+                <div class="col">
+                    <div class="card card-producto shadow-sm">
+                        <div class="position-relative border-bottom">
+                            <img src="{{ p.imagen }}" class="img-producto" alt="{{ p.nombre }}">
+                            {% if p.stock <= 0 %}
+                                <span class="badge bg-danger position-absolute top-0 end-0 m-2">Agotado</span>
+                            {% else %}
+                                <span class="badge bg-dark bg-opacity-75 position-absolute bottom-0 end-0 m-2">Disponible: {{ p.stock }}</span>
+                            {% endif %}
                         </div>
-                        <a href="{% url 'detalle_producto' p.id %}" class="text-decoration-none text-dark">
-                            <h5 class="card-title fw-bold mb-1">{{ p.nombre }}</h5>
-                        </a>
-                        <p class="small text-secondary mb-2">
-                            <strong>Marca:</strong> {{ p.marca }} | <strong>Medida:</strong> {{ p.medida }}
-                        </p>
-                        <p class="card-text text-muted small flex-grow-1">{{ p.descripcion }}</p>
-                        <h4 class="fw-bold mb-3" style="color: #14283C;">${{ p.precio|floatformat:2 }}</h4>
-                        <div class="d-flex gap-2">
-                            <a href="{% url 'detalle_producto' p.id %}" class="btn btn-outline-secondary w-50 fw-semibold">Detalle</a>
-                            <form action="{% url 'agregar_al_carrito' p.id %}" method="POST" class="w-50">
-                                {% csrf_token %}
-                                <input type="hidden" name="cantidad" value="1">
-                                <button type="submit" class="btn btn-naranja w-100" {% if p.stock <= 0 %}disabled{% endif %}>
-                                    <i class="bi bi-cart-plus"></i> Añadir
-                                </button>
-                            </form>
+
+                        <div class="card-body d-flex flex-column p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="badge" style="background-color: #2E5A78;">{{ p.categoria }}</span>
+                                <small class="text-muted fw-semibold">{{ p.codigo }}</small>
+                            </div>
+
+                            <h5 class="card-title fw-bold mb-1" style="color: #14283C;">{{ p.nombre }}</h5>
+                            <p class="small text-muted mb-2">
+                                <strong>Marca:</strong> {{ p.marca }} | <strong>Medida:</strong> {{ p.medida }}
+                            </p>
+                            <p class="card-text small text-secondary flex-grow-1">{{ p.descripcion }}</p>
+
+                            <h4 class="fw-bold my-3" style="color: #14283C;">${{ p.precio|floatformat:2 }}</h4>
+
+                            <div class="d-flex gap-2 mt-auto">
+                                <a href="{% url 'detalle_producto' p.id %}" class="btn btn-outline-secondary btn-sm w-50 py-2 fw-semibold">
+                                    Detalle
+                                </a>
+                                <form action="{% url 'agregar_al_carrito' p.id %}" method="POST" class="w-50">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="cantidad" value="1">
+                                    <button type="submit" class="btn btn-naranja btn-sm w-100 py-2" {% if p.stock <= 0 %}disabled{% endif %}>
+                                        <i class="bi bi-cart-plus me-1"></i> Añadir
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
+                {% endfor %}
             </div>
-            {% empty %}
-            <div class="col-12 text-center py-5">
-                <i class="bi bi-search fs-1 text-muted"></i>
-                <h4 class="mt-3 text-muted">No se encontraron productos con ese criterio.</h4>
-                <a href="{% url 'inicio' %}" class="btn btn-naranja mt-2">Mostrar todos los productos</a>
+        {% else %}
+            <div class="card border-0 shadow-sm rounded-3 p-5 text-center">
+                <h5 class="fw-bold" style="color: #14283C;">No se encontraron productos</h5>
+                <p class="text-muted small mb-3">Intenta buscar con otro nombre, código, marca o categoría.</p>
+                <div>
+                    <a href="{% url 'inicio' %}" class="btn btn-naranja px-4">Ver todo el catálogo</a>
+                </div>
             </div>
-            {% endfor %}
-        </div>
+        {% endif %}
     </div>
 
-    <footer class="bg-petroleo text-white py-4 mt-auto">
+    <footer class="bg-petroleo text-white py-4 mt-5">
         <div class="container">
-            <div class="row g-4 align-items-center">
+            <div class="row align-items-center gy-3 text-center text-md-start">
                 <div class="col-md-5">
                     <h5 class="fw-bold text-warning mb-1">Ferretería Industrial Bimetálica S.A. de C.V.</h5>
                     <p class="small text-light mb-0">Suministro de herramientas, materiales de construcción, plomería, electricidad y maquinaria para clientes particulares y empresas.</p>
                 </div>
-                <div class="col-md-4 small">
-                    <div><i class="bi bi-geo-alt-fill text-warning me-2"></i>Boulevard del Ejército, San Salvador, El Salvador</div>
-                    <div class="mt-1"><i class="bi bi-telephone-fill text-warning me-2"></i>Atención y Pedidos: (503) 2250-9000</div>
+                <div class="col-md-4">
+                    <p class="small mb-1"><i class="bi bi-geo-alt-fill text-warning me-1"></i> Boulevard del Ejército, San Salvador, El Salvador</p>
+                    <p class="small mb-0"><i class="bi bi-telephone-fill text-warning me-1"></i> Atención y Pedidos: (503) 2250-9000</p>
                 </div>
-                <div class="col-md-3 text-md-end small">
-                    <span class="badge bg-secondary p-2">Horario: Lun - Sáb 7:00 AM a 5:30 PM</span>
+                <div class="col-md-3 text-md-end">
+                    <span class="badge bg-secondary px-3 py-2">Horario: Lun - Sáb 7:00 AM a 5:30 PM</span>
                 </div>
             </div>
         </div>
     </footer>
-
-    {% if messages %}
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
-        {% for message in messages %}
-        <div class="alert alert-success shadow-lg d-flex align-items-center gap-2 mb-2 py-2 px-3 border-0" style="background-color: #14283C; color: #FFFFFF; border-left: 5px solid #E66E19 !important;">
-            <i class="bi bi-check-circle-fill" style="color: #E66E19;"></i>
-            <span>{{ message }}</span>
-        </div>
-        {% endfor %}
-    </div>
-    <script>
-        setTimeout(() => {
-            document.querySelectorAll('.position-fixed .alert').forEach(el => el.remove());
-        }, 2500);
-    </script>
-    {% endif %}
 
 </body>
 </html>
