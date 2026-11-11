@@ -15,6 +15,12 @@
         .btn-naranja:hover { background-color: #cf5f10; color: #FFFFFF; }
         .nav-pills .nav-link { color: #14283C; font-weight: 600; border-radius: 8px; }
         .nav-pills .nav-link.active { background-color: #14283C; color: #FFFFFF; }
+        .pos-quantity::-webkit-inner-spin-button,
+        .pos-quantity::-webkit-outer-spin-button { appearance: none; margin: 0; }
+        .pos-quantity { appearance: textfield; }
+        .pos-layout,
+        .pos-layout > [class*="col-"],
+        .pos-layout .card { min-width: 0; }
         @media print {
             .no-print { display: none !important; }
             body { background-color: #FFFFFF; }
@@ -46,12 +52,22 @@
         </div>
     </nav>
 
-    <div class="container my-4">
+    <div class="{% if seccion == 'pos' %}container-fluid px-3 px-xl-4{% else %}container{% endif %} my-4">
         {% if messages %}
             <div class="no-print">
                 {% for message in messages %}
                     <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} py-2 small shadow-sm">{{ message }}</div>
                 {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if rol == 'cliente' and email_verification_pending %}
+            <div class="alert alert-info d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 py-2 no-print">
+                <span class="small mb-0">Verifica tu correo para mantener tu cuenta actualizada. Esto no bloquea tus pedidos.</span>
+                <form action="{% url 'reenviar_verificacion' %}" method="post" class="mb-0">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Reenviar verificación</button>
+                </form>
             </div>
         {% endif %}
 
@@ -85,7 +101,7 @@
                 </li>
             {% endif %}
 
-            {% if rol != 'cliente' %}
+            {% if rol == 'admin' %}
                 <li class="nav-item">
                     <a class="nav-link {% if seccion == 'reportes' %}active{% endif %}" href="{% url 'panel' %}?seccion=reportes">
                         <i class="bi bi-bar-chart-line me-1"></i> Reportes Gerenciales
@@ -94,6 +110,11 @@
                 <li class="nav-item">
                     <a class="nav-link {% if seccion == 'usuarios' %}active{% endif %}" href="{% url 'panel' %}?seccion=usuarios">
                         <i class="bi bi-people me-1"></i> Usuarios y Accesos
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if seccion == 'pagos' %}active{% endif %}" href="{% url 'panel' %}?seccion=pagos">
+                        <i class="bi bi-credit-card me-1"></i> Auditoría de Pagos
                     </a>
                 </li>
             {% endif %}
@@ -140,8 +161,8 @@
         {% endif %}
 
         {% if seccion == 'pos' and rol != 'cliente' %}
-        <div class="row g-4">
-            <div class="col-lg-7">
+        <div class="row g-4 pos-layout">
+            <div class="col-12 col-xl-7 order-2 order-xl-1">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <h5 class="fw-bold mb-3" style="color: #14283C;">
                         <i class="bi bi-search me-1"></i> Búsqueda Rápida para Punto de Venta
@@ -190,7 +211,7 @@
                                     <td>
                                         <form action="{% url 'agregar_al_carrito' p.id %}" method="POST" class="d-flex gap-1">
                                             {% csrf_token %}
-                                            <input type="number" name="cantidad" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center" {% if p.stock <= 0 %}disabled{% endif %}>
+                                            <input type="number" name="cantidad" value="1" min="1" max="{{ p.stock }}" class="form-control form-control-sm text-center pos-quantity" {% if p.stock <= 0 %}disabled{% endif %}>
                                             <button type="submit" class="btn btn-sm btn-naranja" {% if p.stock <= 0 %}disabled{% endif %}>
                                                 <i class="bi bi-plus-lg"></i>
                                             </button>
@@ -204,12 +225,15 @@
                 </div>
             </div>
 
-            <div class="col-lg-5">
+            <div class="col-12 col-xl-5 order-1 order-xl-2">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="fw-bold mb-0" style="color: #14283C;">Caja / Punto de Venta</h5>
                         {% if resumen_carrito.items %}
-                            <a href="{% url 'vaciar_carrito' %}" class="btn btn-sm btn-outline-danger">Limpiar</a>
+                            <form action="{% url 'vaciar_carrito' %}" method="POST">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Limpiar</button>
+                            </form>
                         {% endif %}
                     </div>
 
@@ -218,12 +242,20 @@
                             {% for item in resumen_carrito.items %}
                             <li class="list-group-item d-flex justify-content-between align-items-center px-0">
                                 <div>
-                                    <strong>{{ item.cantidad }}x</strong> {{ item.nombre }}{% if item.medida %} ({{ item.medida }}){% endif %}
+                                    <strong>{{ item.nombre }}</strong>{% if item.medida %} ({{ item.medida }}){% endif %}
                                     <div class="text-muted">${{ item.precio_aplicado|floatformat:2 }} c/u</div>
                                 </div>
                                 <div class="d-flex align-items-center gap-2">
+                                    <form action="{% url 'actualizar_carrito' item.id %}" method="POST" class="d-flex gap-1">
+                                        {% csrf_token %}
+                                        <input type="number" name="cantidad" value="{{ item.cantidad }}" min="1" max="{{ item.stock }}" class="form-control form-control-sm text-center" style="width: 76px;" aria-label="Cantidad de {{ item.nombre }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Actualizar cantidad"><i class="bi bi-check-lg"></i></button>
+                                    </form>
                                     <span class="fw-bold">${{ item.subtotal|floatformat:2 }}</span>
-                                    <a href="{% url 'eliminar_del_carrito' item.id %}" class="text-danger"><i class="bi bi-x-circle"></i></a>
+                                    <form action="{% url 'eliminar_del_carrito' item.id %}" method="POST">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-link text-danger p-0" aria-label="Quitar {{ item.nombre }}"><i class="bi bi-x-circle"></i></button>
+                                    </form>
                                 </div>
                             </li>
                             {% endfor %}
@@ -270,12 +302,16 @@
                                 </div>
                                 <div class="col-6">
                                     <label class="form-label small fw-semibold">Método de Pago</label>
-                                    <select name="metodo_pago" class="form-select form-select-sm">
+                                    <select name="metodo_pago" class="form-select form-select-sm payment-method">
                                         <option value="Efectivo">Efectivo</option>
                                         <option value="Tarjeta">Tarjeta</option>
                                         <option value="Transferencia">Transferencia</option>
                                     </select>
                                 </div>
+                            </div>
+                            <div class="mb-3 payment-reference-wrap d-none">
+                                <label class="form-label small fw-semibold">Referencia de pago (opcional)</label>
+                                <input type="text" name="referencia_pago" class="form-control form-control-sm" maxlength="100">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label small fw-semibold">Dirección <span class="text-danger">*</span></label>
@@ -295,7 +331,7 @@
 
         {% if seccion == 'inventario' and rol != 'cliente' %}
         <div class="row g-4">
-            {% if rol != 'cliente' %}
+            {% if rol == 'admin' %}
             <div class="col-lg-4">
                 <div class="card border-0 shadow-sm rounded-3 p-4 mb-4">
                     <h5 class="fw-bold mb-3" style="color: #14283C;">
@@ -387,7 +423,7 @@
             </div>
             {% endif %}
 
-            <div class="{% if rol != 'cliente' %}col-lg-8{% else %}col-12{% endif %}">
+            <div class="{% if rol == 'admin' %}col-lg-8{% else %}col-12{% endif %}">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                         <h5 class="fw-bold mb-0" style="color: #14283C;">Control de Inventario y Ubicaciones</h5>
@@ -415,7 +451,7 @@
                                     <th>Precio Venta</th>
                                     <th>Existencias</th>
                                     <th>Estado</th>
-                                    {% if rol != 'cliente' %}<th>Acción</th>{% endif %}
+                                    {% if rol == 'admin' %}<th>Acción</th>{% endif %}
                                 </tr>
                             </thead>
                             <tbody>
@@ -448,13 +484,14 @@
                                             <span class="badge bg-success">Óptimo</span>
                                         {% endif %}
                                     </td>
-                                   {% if rol != 'cliente' %}
+                                   {% if rol == 'admin' %}
                                     <td class="text-nowrap">
                                         <div class="d-flex gap-1">
                                             <a href="{% url 'panel' %}?seccion=inventario&editar_id={{ p.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
-                                            <form action="{% url 'eliminar_producto' p.id %}" method="POST" onsubmit="return confirm('¿Estás seguro de que deseas eliminar {{ p.nombre }} del inventario?');">
+                                            <form action="{% url 'eliminar_producto' p.id %}" method="POST" onsubmit="return confirm('{% if p.estado %}¿Inactivar{% else %}¿Reactivar{% endif %} {{ p.nombre }}?');">
                                                 {% csrf_token %}
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                                {% if not p.estado %}<input type="hidden" name="accion" value="reactivar">{% endif %}
+                                                <button type="submit" class="btn btn-sm {% if p.estado %}btn-outline-danger{% else %}btn-outline-success{% endif %}">{% if p.estado %}Inactivar{% else %}Reactivar{% endif %}</button>
                                             </form>
                                         </div>
                                     </td>
@@ -471,7 +508,35 @@
 
         {% if seccion == 'pedidos' and rol != 'cliente' %}
         <div class="card border-0 shadow-sm rounded-3 p-4">
-            <h5 class="fw-bold mb-3" style="color: #14283C;">Gestión de pedidos WEB</h5>
+            <h5 class="fw-bold mb-3" style="color: #14283C;">Cola compartida de pedidos WEB</h5>
+            <form action="{% url 'panel' %}" method="GET" class="row g-2 align-items-end mb-3 no-print">
+                <input type="hidden" name="seccion" value="pedidos">
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Estado</label>
+                    <select name="estado" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        {% for estado in estados_pedido %}
+                            <option value="{{ estado }}" {% if filtros_pedidos.estado == estado %}selected{% endif %}>{{ estado }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold">Desde</label>
+                    <input type="date" name="fecha_inicio" value="{{ filtros_pedidos.fecha_inicio }}" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold">Hasta</label>
+                    <input type="date" name="fecha_fin" value="{{ filtros_pedidos.fecha_fin }}" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Cliente, correo o documento</label>
+                    <input type="search" name="cliente" value="{{ filtros_pedidos.cliente }}" maxlength="150" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                    <button class="btn btn-sm btn-naranja flex-grow-1" type="submit">Filtrar</button>
+                    <a href="{% url 'panel' %}?seccion=pedidos" class="btn btn-sm btn-outline-secondary">Limpiar</a>
+                </div>
+            </form>
             {% if ventas_pedidos %}
                 <div class="table-responsive">
                     <table class="table align-middle small">
@@ -511,11 +576,12 @@
                                             {% endif %}
                                         </select>
                                         {% if v.estado == 'Listo' %}
-                                            <select name="metodo_pago" class="form-select form-select-sm">
+                                            <select name="metodo_pago" class="form-select form-select-sm payment-method">
                                                 <option value="Efectivo">Efectivo</option>
                                                 <option value="Tarjeta">Tarjeta</option>
                                                 <option value="Transferencia">Transferencia</option>
                                             </select>
+                                            <input type="text" name="referencia_pago" class="form-control form-control-sm payment-reference d-none" maxlength="100" placeholder="Referencia de pago (opcional)">
                                         {% endif %}
                                         <button type="submit" class="btn btn-sm btn-outline-success">{% if v.estado == 'Listo' %}Registrar pago{% else %}Guardar estado{% endif %}</button>
                                     </form>
@@ -523,6 +589,12 @@
                                 </td>
                                 <td class="text-end">
                                     <a href="{% url 'ver_factura_guardada' v.id_pedido %}" class="btn btn-sm btn-naranja">Ver pedido</a>
+                                    {% if v.venta_id and rol == 'empleado' or v.venta_id and rol == 'admin' %}
+                                        <form action="{% url 'reenviar_factura_email' v.venta_id %}" method="post" class="mt-1">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Reenviar factura por correo</button>
+                                        </form>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -543,7 +615,35 @@
             </button>
         </div>
 
+        <form action="{% url 'panel' %}" method="GET" class="row g-2 align-items-end mb-3 no-print">
+            <input type="hidden" name="seccion" value="reportes">
+            <div class="col-sm-3">
+                <label class="form-label small fw-semibold">Ventas desde</label>
+                <input type="date" name="fecha_inicio" value="{{ filtros_reporte.fecha_inicio }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-sm-3">
+                <label class="form-label small fw-semibold">Ventas hasta</label>
+                <input type="date" name="fecha_fin" value="{{ filtros_reporte.fecha_fin }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-sm-2">
+                <button class="btn btn-sm btn-naranja w-100" type="submit">Actualizar reporte</button>
+            </div>
+            <div class="col-sm-4 small text-muted">El inventario refleja existencias actuales; ventas usa el rango elegido (por defecto, últimos 30 días).</div>
+        </form>
+
         <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Productos activos</small>
+                    <h4 class="fw-bold mb-0" style="color: #14283C;">{{ total_productos }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Unidades disponibles</small>
+                    <h4 class="fw-bold mb-0" style="color: #2E5A78;">{{ unidades_disponibles }}</h4>
+                </div>
+            </div>
             <div class="col-md-3">
                 <div class="card border-0 shadow-sm p-3">
                     <small class="text-muted">Valor Inventario (Costo)</small>
@@ -558,14 +658,32 @@
             </div>
             <div class="col-md-3">
                 <div class="card border-0 shadow-sm p-3">
-                    <small class="text-muted">Ingresos por Ventas</small>
+                    <small class="text-muted">Ventas en el período</small>
+                    <h4 class="fw-bold mb-0 text-success">{{ total_ventas }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Ingresos por ventas</small>
                     <h4 class="fw-bold mb-0 text-success">${{ total_ingresos_ventas|floatformat:2 }}</h4>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="card border-0 shadow-sm p-3">
-                    <small class="text-muted">Productos por Reabastecer</small>
+                    <small class="text-muted">Productos por reabastecer</small>
                     <h4 class="fw-bold mb-0 text-danger">{{ total_por_reabastecer }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Productos con poco stock</small>
+                    <h4 class="fw-bold mb-0 text-warning">{{ productos_bajo_stock_count }}</h4>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm p-3">
+                    <small class="text-muted">Productos sin stock</small>
+                    <h4 class="fw-bold mb-0 text-danger">{{ productos_sin_stock_count }}</h4>
                 </div>
             </div>
         </div>
@@ -591,9 +709,9 @@
                         <tr>
                             <td>{{ p.codigo }}</td>
                             <td class="fw-bold">{{ p.nombre }}</td>
-                            <td>{{ p.marca }} ({{ p.medida }})</td>
+                            <td>{{ p.marca }}{% if p.medida %} ({{ p.medida }}){% endif %}</td>
                             <td>{{ p.pasillo }} - {{ p.estanteria }}</td>
-                            <td class="text-danger fw-bold">0</td>
+                            <td class="text-danger fw-bold">{{ p.stock }}</td>
                             <td>{{ p.stock_minimo }}</td>
                             <td><span class="badge bg-danger">Agotado</span></td>
                         </tr>
@@ -602,7 +720,7 @@
                         <tr>
                             <td>{{ p.codigo }}</td>
                             <td class="fw-bold">{{ p.nombre }}</td>
-                            <td>{{ p.marca }} ({{ p.medida }})</td>
+                            <td>{{ p.marca }}{% if p.medida %} ({{ p.medida }}){% endif %}</td>
                             <td>{{ p.pasillo }} - {{ p.estanteria }}</td>
                             <td class="text-warning fw-bold">{{ p.stock }}</td>
                             <td>{{ p.stock_minimo }}</td>
@@ -655,7 +773,7 @@
                                     <th>Código / Producto</th>
                                     <th>Ubicación</th>
                                     <th class="text-center">Stock</th>
-                                    <th class="text-end">Precio Unit.</th>
+                                    <th class="text-end">Valor en Stock</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -667,7 +785,7 @@
                                     </td>
                                     <td>{{ p.pasillo }} ({{ p.estanteria }})</td>
                                     <td class="text-center fw-bold">{{ p.stock }}</td>
-                                    <td class="text-end fw-bold">${{ p.precio|floatformat:2 }}</td>
+                                    <td class="text-end fw-bold">${{ p.valor_inventario|floatformat:2 }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -697,7 +815,7 @@
                             <tr>
                                 <td class="fw-bold">{{ pm.codigo }}</td>
                                 <td>{{ pm.nombre }}</td>
-                                <td>{{ pm.categoria }}</td>
+                                <td>{{ pm.categoria|default:"—" }}</td>
                                 <td class="text-center fw-bold">{{ pm.unidades_vendidas }}</td>
                                 <td class="text-end fw-bold text-success">${{ pm.ingresos_generados|floatformat:2 }}</td>
                             </tr>
@@ -741,16 +859,132 @@
                         <button type="submit" class="btn btn-naranja w-100 py-2">Crear Usuario</button>
                     </form>
                 </div>
+                <div class="card border-0 shadow-sm rounded-3 p-3 mt-3">
+                    <h6 class="fw-bold mb-2" style="color: #14283C;">Tus sesiones</h6>
+                    <p class="small text-muted">Cierra todas las sesiones de tu cuenta. Tendrás que iniciar sesión de nuevo.</p>
+                    <form action="{% url 'revocar_mis_sesiones' %}" method="POST" onsubmit="return confirm('¿Revocar todas tus sesiones e iniciar sesión de nuevo?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Revocar mis sesiones</button>
+                    </form>
+                </div>
             </div>
             <div class="col-md-8">
                 <div class="card border-0 shadow-sm rounded-3 p-4">
                     <h5 class="fw-bold mb-3" style="color: #14283C;">Usuarios del Sistema y Niveles de Acceso</h5>
-                    <p class="text-muted mb-0">El endpoint actual permite crear empleados, pero no ofrece un listado de usuarios. No se muestran datos locales simulados.</p>
+                    {% if usuarios %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead class="table-light">
+                                <tr><th>Usuario</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for cuenta in usuarios %}
+                                <tr>
+                                    <td>{{ cuenta.Nombres }} {{ cuenta.apellidos }}</td>
+                                    <td>{{ cuenta.correo }}</td>
+                                    <td>{% if cuenta.rol_id == 1 %}Propietario{% elif cuenta.rol_id == 2 %}Empleado{% else %}Cliente{% endif %}</td>
+                                    <td>{% if cuenta.activo %}<span class="badge bg-success">Activa</span>{% else %}<span class="badge bg-secondary">Inactiva</span>{% endif %}</td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <form action="{% url 'cambiar_estado_usuario' cuenta.id_usuario %}" method="POST">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="activo" value="{% if cuenta.activo %}false{% else %}true{% endif %}">
+                                                <button type="submit" class="btn btn-sm {% if cuenta.activo %}btn-outline-danger{% else %}btn-outline-success{% endif %}">{% if cuenta.activo %}Desactivar{% else %}Activar{% endif %}</button>
+                                            </form>
+                                            <form action="{% url 'revocar_sesiones_usuario' cuenta.id_usuario %}" method="POST" onsubmit="return confirm('¿Revocar todas las sesiones de esta cuenta?');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">Revocar sesiones</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No hay cuentas para mostrar.</p>
+                    {% endif %}
                 </div>
             </div>
         </div>
         {% endif %}
+
+        {% if seccion == 'pagos' and rol == 'admin' %}
+        <div class="card border-0 shadow-sm rounded-3 p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-1" style="color: #14283C;">Auditoría de pagos</h5>
+                    <p class="small text-muted mb-0">Registros de cobros de ventas. Las referencias se muestran solo si fueron capturadas.</p>
+                </div>
+            </div>
+            <form action="{% url 'panel' %}" method="GET" class="row g-2 align-items-end mb-3 no-print">
+                <input type="hidden" name="seccion" value="pagos">
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Desde</label>
+                    <input type="date" name="fecha_inicio" value="{{ request.GET.fecha_inicio }}" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Hasta</label>
+                    <input type="date" name="fecha_fin" value="{{ request.GET.fecha_fin }}" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Método</label>
+                    <select name="metodo_pago" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        {% for metodo in metodos_pago %}
+                            <option value="{{ metodo }}" {% if filtro_metodo_pago == metodo %}selected{% endif %}>{{ metodo }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3"><button class="btn btn-sm btn-naranja w-100" type="submit">Filtrar pagos</button></div>
+            </form>
+            {% if pagos %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead class="table-light"><tr><th>Fecha</th><th>Venta</th><th>Usuario</th><th>Método</th><th>Referencia</th><th class="text-end">Monto</th></tr></thead>
+                    <tbody>
+                        {% for pago in pagos %}
+                        <tr>
+                            <td>{{ pago.fecha_hora }}</td>
+                            <td>#{{ pago.venta_id }}</td>
+                            <td>#{{ pago.usuario_id }}</td>
+                            <td>{{ pago.metodo_pago }}</td>
+                            <td>{{ pago.referencia|default:"—" }}</td>
+                            <td class="text-end fw-bold">${{ pago.monto|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+                <p class="text-muted mb-0">No hay pagos que coincidan con los filtros.</p>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 
+    <script>
+        document.querySelectorAll('.payment-method').forEach((select) => {
+            const form = select.closest('form');
+            const referenceWrap = form.querySelector('.payment-reference-wrap');
+            const referenceInput = referenceWrap
+                ? referenceWrap.querySelector('input[name="referencia_pago"]')
+                : form.querySelector('.payment-reference');
+            const updateReferenceVisibility = () => {
+                const needsReference = select.value !== 'Efectivo';
+                if (referenceWrap) {
+                    referenceWrap.classList.toggle('d-none', !needsReference);
+                } else if (referenceInput) {
+                    referenceInput.classList.toggle('d-none', !needsReference);
+                }
+                if (!needsReference && referenceInput) {
+                    referenceInput.value = '';
+                }
+            };
+            select.addEventListener('change', updateReferenceVisibility);
+            updateReferenceVisibility();
+        });
+    </script>
 </body>
 </html>

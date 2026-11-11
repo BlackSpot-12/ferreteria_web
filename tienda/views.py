@@ -1,8 +1,12 @@
 import logging
 import os
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 import requests
 from django.contrib import messages
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.http import HttpResponseNotAllowed
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -14,6 +18,43 @@ API_BASE_URL = os.environ.get(
 ROLES_WEB = {1: "admin", 2: "empleado", 3: "cliente"}
 IMAGEN_PRODUCTO_DEFAULT = "tienda/producto-generico.svg"
 METODOS_PAGO = ("Efectivo", "Tarjeta", "Transferencia")
+ESTADOS_PEDIDO = ("Pendiente", "En preparacion", "Listo", "Entregado")
+LONGITUD_CODIGO_PEDIDO = 12
+
+
+def a_decimal(valor, defecto=Decimal("0")):
+    try:
+        valor_defecto = (
+            defecto
+            if isinstance(defecto, Decimal)
+            else Decimal(str(defecto))
+        )
+        if not valor_defecto.is_finite():
+            valor_defecto = Decimal("0")
+    except (InvalidOperation, TypeError, ValueError):
+        valor_defecto = Decimal("0")
+
+    if valor is None:
+        return valor_defecto
+    try:
+        numero = (
+            Decimal(int(valor))
+            if isinstance(valor, bool)
+            else valor
+            if isinstance(valor, Decimal)
+            else Decimal(str(valor))
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return valor_defecto
+    return numero if numero.is_finite() else valor_defecto
+
+
+def _correo_valido(correo):
+    try:
+        validate_email(correo)
+    except ValidationError:
+        return False
+    return True
 
 
 def headers_api(request, extra=None):
@@ -37,6 +78,7 @@ def api_request(
     json_data=None,
     form_data=None,
     extra_headers=None,
+    show_errors=True,
 ):
     try:
         response = requests.request(
@@ -50,10 +92,11 @@ def api_request(
         )
     except requests.RequestException:
         logger.exception("Error de conexión con la API: %s %s", method, path)
-        messages.error(
-            request,
-            "No fue posible conectarse con el servicio. Inténtalo de nuevo.",
-        )
+        if show_errors:
+            messages.error(
+                request,
+                "No fue posible conectarse con el servicio. Inténtalo de nuevo.",
+            )
         return None
 
     if response.status_code == 401 and authenticated:
@@ -84,7 +127,8 @@ def api_request(
             response.status_code,
             detail,
         )
-        messages.error(request, str(detail))
+        if show_errors:
+            messages.error(request, str(detail))
         return None
     return response
 
@@ -104,12 +148,13 @@ def _json_response(request, response, description):
         return None
 
 
-def _api_list(request, path, *, authenticated=True):
+def _api_list(request, path, *, authenticated=True, params=None):
     response = api_request(
         request,
         "GET",
         path,
         authenticated=authenticated,
+        params=params,
     )
     if response is None:
         return None
@@ -123,12 +168,13 @@ def _api_list(request, path, *, authenticated=True):
     return payload
 
 
-def _api_object(request, path, *, authenticated=True):
+def _api_object(request, path, *, authenticated=True, params=None):
     response = api_request(
         request,
         "GET",
         path,
         authenticated=authenticated,
+        params=params,
     )
     if response is None:
         return None
@@ -166,25 +212,25 @@ def _require_roles(request, allowed_roles):
 
 
 def adaptar_producto(producto, *, categoria=None, ubicacion=None):
-    stock = producto.get("stock_actual")
+    stock_api = producto.get("stock_actual")
     adaptado = {
         **producto,
         "id": producto.get("id_producto"),
-        "precio": producto.get("precio_venta"),
+        "precio": a_decimal(producto.get("precio_venta")),
         "medida": producto.get("medida_presentacion"),
         "descripcion": producto.get("descripcion") or "",
         "categoria": categoria,
         "categoria_id": producto.get("categoria_id"),
         "imagen": producto.get("fotografia_url") or static(IMAGEN_PRODUCTO_DEFAULT),
-        "stock": stock,
-        "stock_disponible": stock is not None,
-        "stock_minimo": producto.get("stock_minimo"),
+        "stock": a_decimal(stock_api),
+        "stock_disponible": stock_api is not None,
+        "stock_minimo": a_decimal(producto.get("stock_minimo")),
         "pasillo": (ubicacion or {}).get("pasillo"),
         "estanteria": (ubicacion or {}).get("estante"),
         "ubicacion_id": producto.get("ubicacion_id"),
-        "precio_compra": producto.get("precio_compra"),
+        "precio_compra": a_decimal(producto.get("precio_compra")),
     }
-    if stock is not None:
+    if stock_api is not None:
         adaptado["estado"] = producto.get("estado", False)
     return adaptado
 
@@ -220,7 +266,10 @@ def obtener_productos_api(request, *, categoria=None):
 
 def contar_items_carrito(request):
     carrito = request.session.get("carrito", {})
-    return sum(item.get("cantidad", 0) for item in carrito.values())
+    return sum(
+        int(a_decimal(item.get("cantidad")))
+        for item in carrito.values()
+    )
 
 
 def inicio(request):
@@ -232,6 +281,19 @@ def inicio(request):
     productos = obtener_productos_api(request, categoria=categoria_actual or None)
     if productos is None:
         productos = []
+    precio_mayor = max(
+        (a_decimal(producto.get("precio")) for producto in productos),
+        default=Decimal("0"),
+    )
+    precio_tope_maximo = int(
+        precio_mayor.to_integral_value(rounding=ROUND_CEILING)
+    )
+    precio_raw = request.GET.get("max_price", "").strip()
+    precio_tope = a_decimal(precio_raw, Decimal(precio_tope_maximo))
+    precio_tope = min(
+        max(precio_tope, Decimal("0")),
+        Decimal(precio_tope_maximo),
+    )
     busqueda = request.GET.get("q", "").strip()
     if busqueda:
         consulta = busqueda.casefold()
@@ -242,6 +304,39 @@ def inicio(request):
             or consulta in (producto.get("marca") or "").casefold()
             or consulta in (producto.get("medida") or "").casefold()
         ]
+    productos = [
+        producto for producto in productos
+        if a_decimal(producto.get("precio")) <= precio_tope
+    ]
+    total_productos = len(productos)
+    tamano_pagina = 12
+    total_paginas = max(
+        1,
+        (total_productos + tamano_pagina - 1) // tamano_pagina,
+    )
+    try:
+        pagina_actual = int(request.GET.get("page", "1"))
+    except (TypeError, ValueError):
+        pagina_actual = 1
+    pagina_actual = min(max(pagina_actual, 1), total_paginas)
+
+    def url_pagina(numero):
+        parametros = request.GET.copy()
+        parametros["page"] = numero
+        return f"?{parametros.urlencode()}"
+
+    primera_pagina = max(1, pagina_actual - 2)
+    ultima_pagina = min(total_paginas, pagina_actual + 2)
+    paginas = [
+        {
+            "numero": numero,
+            "url": url_pagina(str(numero)),
+        }
+        for numero in range(primera_pagina, ultima_pagina + 1)
+    ]
+    productos = productos[
+        (pagina_actual - 1) * tamano_pagina:pagina_actual * tamano_pagina
+    ]
     return render(
         request,
         "tienda/index.html",
@@ -251,6 +346,23 @@ def inicio(request):
             "busqueda": busqueda,
             "categoria_actual": categoria_actual,
             "cantidad_carrito": contar_items_carrito(request),
+            "precio_tope": precio_tope,
+            "precio_tope_maximo": precio_tope_maximo,
+            "precio_filtro_activo": bool(precio_raw),
+            "total_productos": total_productos,
+            "pagina_actual": pagina_actual,
+            "total_paginas": total_paginas,
+            "paginas": paginas,
+            "url_pagina_anterior": (
+                url_pagina(str(pagina_actual - 1))
+                if pagina_actual > 1
+                else None
+            ),
+            "url_pagina_siguiente": (
+                url_pagina(str(pagina_actual + 1))
+                if pagina_actual < total_paginas
+                else None
+            ),
         },
     )
 
@@ -301,7 +413,7 @@ def agregar_al_carrito(request, producto_id):
     else:
         carrito = request.session.get("carrito", {})
         clave = str(producto_id)
-        actual = carrito.get(clave, {}).get("cantidad", 0)
+        actual = int(a_decimal(carrito.get(clave, {}).get("cantidad")))
         carrito[clave] = {"cantidad": actual + cantidad}
         request.session["carrito"] = carrito
         request.session.modified = True
@@ -334,6 +446,8 @@ def actualizar_carrito(request, producto_id):
 
 
 def eliminar_del_carrito(request, producto_id):
+    if request.method != "POST":
+        return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
     carrito = request.session.get("carrito", {})
     carrito.pop(str(producto_id), None)
     request.session["carrito"] = carrito
@@ -342,6 +456,8 @@ def eliminar_del_carrito(request, producto_id):
 
 
 def vaciar_carrito(request):
+    if request.method != "POST":
+        return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
     request.session["carrito"] = {}
     request.session.modified = True
     return redirect(request.META.get("HTTP_REFERER") or "ver_carrito")
@@ -353,10 +469,10 @@ def calcular_totales_carrito(request, carrito):
         return None
     productos_por_id = {str(item["id"]): item for item in productos}
     items = []
-    subtotal_estimado = 0
+    subtotal_estimado = Decimal("0")
     for producto_id, carrito_item in carrito.items():
         producto = productos_por_id.get(str(producto_id))
-        cantidad = carrito_item.get("cantidad", 0)
+        cantidad = int(a_decimal(carrito_item.get("cantidad")))
         if producto is None:
             items.append({
                 "id": producto_id,
@@ -364,7 +480,7 @@ def calcular_totales_carrito(request, carrito):
                 "disponible": False,
             })
             continue
-        subtotal = producto["precio"] * cantidad
+        subtotal = a_decimal(producto.get("precio")) * a_decimal(cantidad)
         subtotal_estimado += subtotal
         items.append({
             **producto,
@@ -486,6 +602,12 @@ def generar_factura(request):
             **cliente,
             "metodo_pago": request.POST.get("metodo_pago", "Efectivo"),
         }
+        referencia_pago = request.POST.get("referencia_pago", "").strip()
+        if (
+            datos_facturacion["metodo_pago"] in ("Tarjeta", "Transferencia")
+            and referencia_pago
+        ):
+            datos_facturacion["referencia_pago"] = referencia_pago
         respuesta = api_request(
             request,
             "POST",
@@ -632,8 +754,11 @@ def ver_factura_guardada(request, numero_factura):
 def consultar_pedido_invitado(request):
     if request.method == "POST":
         codigo_acceso = request.POST.get("codigo_acceso", "").strip()
-        if not codigo_acceso:
-            messages.error(request, "Ingresa el código privado de consulta.")
+        if len(codigo_acceso) != LONGITUD_CODIGO_PEDIDO:
+            messages.error(
+                request,
+                "El código privado debe contener exactamente 12 caracteres.",
+            )
         else:
             respuesta = api_request(
                 request,
@@ -662,10 +787,39 @@ def consultar_pedido_invitado(request):
     return render(request, "tienda/consulta_pedido.html")
 
 
-def _productos_panel(request, categorias, ubicaciones):
-    productos = _api_list(request, "/productos")
-    if productos is None:
-        return None
+def _productos_panel(request, categorias, ubicaciones, *, rol):
+    if rol == "admin":
+        productos = _api_list(request, "/productos")
+        if productos is None:
+            return None
+    else:
+        productos = []
+        offset = 0
+        while True:
+            respuesta = api_request(
+                request,
+                "GET",
+                "/productos/buscar",
+                authenticated=True,
+                params={"offset": offset, "limit": 100},
+            )
+            if respuesta is None:
+                return None
+            pagina = _json_response(
+                request,
+                respuesta,
+                "consultar el inventario",
+            )
+            if not isinstance(pagina, list):
+                messages.error(
+                    request,
+                    "El servicio devolvió datos de inventario inválidos.",
+                )
+                return None
+            productos.extend(pagina)
+            if len(pagina) < 100:
+                break
+            offset += 100
     categorias_por_id = {
         categoria["id_categoria"]: categoria["nombre"]
         for categoria in categorias
@@ -674,27 +828,39 @@ def _productos_panel(request, categorias, ubicaciones):
         ubicacion["id_ubicacion"]: ubicacion
         for ubicacion in ubicaciones
     }
-    return [
-        adaptar_producto(
+    adaptados = []
+    for producto in productos:
+        ubicacion = ubicaciones_por_id.get(producto.get("ubicacion_id"))
+        adaptado = adaptar_producto(
             producto,
-            categoria=categorias_por_id.get(producto.get("categoria_id")),
-            ubicacion=ubicaciones_por_id.get(producto.get("ubicacion_id")),
+            categoria=(
+                producto.get("categoria")
+                or categorias_por_id.get(producto.get("categoria_id"))
+            ),
+            ubicacion=ubicacion,
         )
-        for producto in productos
-    ]
+        if rol != "admin":
+            adaptado.update({
+                "estado": True,
+                "pasillo": producto.get("pasillo"),
+                "estanteria": producto.get("estante"),
+                "nivel": producto.get("nivel"),
+            })
+        adaptados.append(adaptado)
+    return adaptados
 
 
 def _resumen_carrito_panel(carrito, productos):
     productos_por_id = {str(producto["id"]): producto for producto in productos}
     items = []
-    subtotal_estimado = 0
+    subtotal_estimado = Decimal("0")
     for producto_id, carrito_item in carrito.items():
         producto = productos_por_id.get(str(producto_id))
-        cantidad = carrito_item.get("cantidad", 0)
+        cantidad = int(a_decimal(carrito_item.get("cantidad")))
         if producto is None or not producto.get("estado"):
             items.append({"id": producto_id, "cantidad": cantidad, "disponible": False})
             continue
-        subtotal = producto["precio"] * cantidad
+        subtotal = a_decimal(producto.get("precio")) * a_decimal(cantidad)
         subtotal_estimado += subtotal
         items.append({
             **producto,
@@ -717,7 +883,7 @@ def panel_view(request):
     permisos = {
         "cliente": {"mis_pedidos"},
         "empleado": {"pos", "inventario", "pedidos"},
-        "admin": {"pos", "inventario", "pedidos", "reportes", "usuarios"},
+        "admin": {"pos", "inventario", "pedidos", "reportes", "usuarios", "pagos"},
     }
     if rol not in permisos:
         request.session.pop("usuario", None)
@@ -736,6 +902,8 @@ def panel_view(request):
         "usuario": usuario,
         "rol": rol,
         "seccion": seccion,
+        "estados_pedido": ESTADOS_PEDIDO,
+        "metodos_pago": METODOS_PAGO,
         "productos": [],
         "todos_productos": [],
         "categorias": [],
@@ -746,13 +914,29 @@ def panel_view(request):
         "productos_bajo_stock": [],
         "productos_alto_valor": [],
         "total_por_reabastecer": 0,
+        "total_productos": 0,
+        "unidades_disponibles": 0,
+        "productos_bajo_stock_count": 0,
+        "productos_sin_stock_count": 0,
         "valor_inventario_costo": 0,
         "valor_inventario_venta": 0,
         "total_ingresos_ventas": 0,
+        "total_ventas": 0,
         "reporte_categorias": [],
         "productos_mas_vendidos": [],
+        "ventas_por_dia": [],
         "ventas_pedidos": [],
+        "filtros_pedidos": {
+            "estado": request.GET.get("estado", ""),
+            "fecha_inicio": request.GET.get("fecha_inicio", ""),
+            "fecha_fin": request.GET.get("fecha_fin", ""),
+            "cliente": request.GET.get("cliente", ""),
+        },
+        "filtro_metodo_pago": request.GET.get("metodo_pago", ""),
+        "pagos": [],
+        "usuarios": [],
         "mis_pedidos": [],
+        "email_verification_pending": False,
         "resumen_carrito": {"items": [], "subtotal_estimado": 0},
         "cantidad_carrito": contar_items_carrito(request),
         "producto_editar": None,
@@ -766,6 +950,15 @@ def panel_view(request):
                 return expired
         else:
             contexto["mis_pedidos"] = pedidos
+        verificacion = _api_object(request, "/usuarios/me/verificacion")
+        if verificacion is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["email_verification_pending"] = (
+                verificacion.get("verificado") is False
+            )
         return render(request, "tienda/panel.html", contexto)
 
     categorias = _api_list(request, "/categorias")
@@ -780,7 +973,12 @@ def panel_view(request):
         if expired:
             return expired
         ubicaciones = []
-    productos = _productos_panel(request, categorias, ubicaciones)
+    productos = _productos_panel(
+        request,
+        categorias,
+        ubicaciones,
+        rol=rol,
+    )
     if productos is None:
         expired = _respuesta_sesion_expirada(request)
         if expired:
@@ -811,43 +1009,55 @@ def panel_view(request):
     if contexto["filtro_stock"] == "agotados":
         productos_visibles = [
             producto for producto in productos_visibles
-            if producto.get("estado") and producto.get("stock", 0) <= 0
+            if producto.get("estado")
+            and a_decimal(producto.get("stock")) <= Decimal("0")
         ]
     elif contexto["filtro_stock"] == "bajo_stock":
         productos_visibles = [
             producto for producto in productos_visibles
             if producto.get("estado")
-            and 0 < producto.get("stock", 0) <= producto.get("stock_minimo", 0)
+            and Decimal("0") < a_decimal(producto.get("stock"))
+            <= a_decimal(producto.get("stock_minimo"))
         ]
     contexto["productos"] = productos_visibles
     contexto["productos_agotados"] = [
         producto for producto in productos
-        if producto.get("estado") and producto.get("stock", 0) <= 0
+        if producto.get("estado")
+        and a_decimal(producto.get("stock")) <= Decimal("0")
     ]
     contexto["productos_bajo_stock"] = [
         producto for producto in productos
         if producto.get("estado")
-        and 0 < producto.get("stock", 0) <= producto.get("stock_minimo", 0)
+        and Decimal("0") < a_decimal(producto.get("stock"))
+        <= a_decimal(producto.get("stock_minimo"))
     ]
     contexto["total_por_reabastecer"] = (
         len(contexto["productos_agotados"])
         + len(contexto["productos_bajo_stock"])
     )
     contexto["valor_inventario_costo"] = sum(
-        producto.get("stock", 0) * (producto.get("precio_compra") or 0)
-        for producto in productos
-        if producto.get("estado")
+        (
+            a_decimal(producto.get("stock"))
+            * a_decimal(producto.get("precio_compra"))
+            for producto in productos
+            if producto.get("estado")
+        ),
+        Decimal("0"),
     )
     contexto["valor_inventario_venta"] = sum(
-        producto.get("stock", 0) * (producto.get("precio") or 0)
-        for producto in productos
-        if producto.get("estado")
+        (
+            a_decimal(producto.get("stock")) * a_decimal(producto.get("precio"))
+            for producto in productos
+            if producto.get("estado")
+        ),
+        Decimal("0"),
     )
     contexto["productos_alto_valor"] = [
         producto for producto in productos
-        if producto.get("estado") and (producto.get("precio") or 0) >= 25
+        if producto.get("estado")
+        and a_decimal(producto.get("precio")) >= Decimal("25")
     ]
-    editar_id = request.GET.get("editar_id")
+    editar_id = request.GET.get("editar_id") if rol == "admin" else None
     if editar_id:
         contexto["producto_editar"] = next(
             (producto for producto in productos if str(producto["id"]) == editar_id),
@@ -855,7 +1065,12 @@ def panel_view(request):
         )
 
     if seccion == "pedidos":
-        pedidos = _api_list(request, "/pedidos")
+        filtros = {
+            nombre: valor
+            for nombre, valor in contexto["filtros_pedidos"].items()
+            if valor
+        }
+        pedidos = _api_list(request, "/pedidos", params=filtros)
         if pedidos is None:
             expired = _respuesta_sesion_expirada(request)
             if expired:
@@ -864,50 +1079,171 @@ def panel_view(request):
             contexto["ventas_pedidos"] = pedidos
 
     if seccion == "reportes":
-        inventario = _api_object(request, "/reportes/inventario")
+        inventario = _api_object(
+            request,
+            "/reportes/inventario",
+            params={"productos_limit": 50},
+        )
         if inventario is None:
             expired = _respuesta_sesion_expirada(request)
             if expired:
                 return expired
         else:
-            contexto["valor_inventario_costo"] = inventario.get(
-                "valor_inventario_compra", 0
+            productos_por_id = {
+                str(producto["id"]): producto for producto in productos
+            }
+            contexto["total_productos"] = int(
+                a_decimal(inventario.get("total_productos"))
             )
-            contexto["valor_inventario_venta"] = inventario.get(
-                "valor_inventario_venta", 0
+            contexto["unidades_disponibles"] = int(
+                a_decimal(inventario.get("unidades_disponibles"))
+            )
+            contexto["productos_bajo_stock_count"] = int(
+                a_decimal(inventario.get("productos_bajo_stock"))
+            )
+            contexto["productos_sin_stock_count"] = int(
+                a_decimal(inventario.get("productos_sin_stock"))
+            )
+            for fila in inventario.get("productos_reponer", []):
+                producto = productos_por_id.get(str(fila.get("producto_id")), {})
+                producto_reponer = {
+                    **producto,
+                    "id": fila.get("producto_id"),
+                    "codigo": fila.get("codigo"),
+                    "nombre": fila.get("nombre"),
+                    "categoria": fila.get("categoria"),
+                    "stock": a_decimal(fila.get("stock_actual")),
+                    "stock_minimo": a_decimal(fila.get("stock_minimo")),
+                }
+                if producto_reponer["stock"] <= 0:
+                    contexto["productos_agotados"].append(producto_reponer)
+                else:
+                    contexto["productos_bajo_stock"].append(producto_reponer)
+            contexto["total_por_reabastecer"] = (
+                contexto["productos_bajo_stock_count"]
+                + contexto["productos_sin_stock_count"]
+            )
+            contexto["productos_alto_valor"] = [
+                {
+                    "id": fila.get("producto_id"),
+                    "codigo": fila.get("codigo"),
+                    "nombre": fila.get("nombre"),
+                    "categoria": fila.get("categoria"),
+                    "stock": a_decimal(fila.get("stock_actual")),
+                    "stock_minimo": a_decimal(fila.get("stock_minimo")),
+                    "precio": (
+                        a_decimal(fila.get("valor_venta"))
+                        / a_decimal(fila.get("stock_actual"))
+                        if a_decimal(fila.get("stock_actual")) > 0
+                        else Decimal("0")
+                    ),
+                    "valor_inventario": a_decimal(fila.get("valor_venta")),
+                    **{
+                        clave: productos_por_id.get(
+                            str(fila.get("producto_id")),
+                            {},
+                        ).get(clave)
+                        for clave in ("marca", "pasillo", "estanteria")
+                    },
+                }
+                for fila in inventario.get("productos_mayor_valor", [])
+            ]
+            contexto["valor_inventario_costo"] = a_decimal(
+                inventario.get("valor_inventario_compra")
+            )
+            contexto["valor_inventario_venta"] = a_decimal(
+                inventario.get("valor_inventario_venta")
             )
             contexto["reporte_categorias"] = [
                 {
                     "categoria": fila.get("categoria"),
-                    "cantidad_productos": fila.get("productos"),
-                    "unidades_stock": fila.get("unidades"),
-                    "valor_total": fila.get("valor_venta"),
+                    "cantidad_productos": int(a_decimal(fila.get("productos"))),
+                    "unidades_stock": int(a_decimal(fila.get("unidades"))),
+                    "valor_total": a_decimal(fila.get("valor_venta")),
                 }
                 for fila in inventario.get("por_categoria", [])
             ]
-        ventas = _api_object(request, "/reportes/ventas")
+        fechas_reporte = {
+            nombre: request.GET.get(nombre, "")
+            for nombre in ("fecha_inicio", "fecha_fin")
+            if request.GET.get(nombre)
+        }
+        contexto["filtros_reporte"] = {
+            "fecha_inicio": request.GET.get("fecha_inicio", ""),
+            "fecha_fin": request.GET.get("fecha_fin", ""),
+        }
+        ventas = _api_object(
+            request,
+            "/reportes/ventas",
+            params=fechas_reporte,
+        )
         if ventas is None:
             expired = _respuesta_sesion_expirada(request)
             if expired:
                 return expired
         else:
-            contexto["total_ingresos_ventas"] = ventas.get("ingresos", 0)
+            contexto["total_ingresos_ventas"] = a_decimal(
+                ventas.get("ingresos")
+            )
+            contexto["total_ventas"] = int(a_decimal(ventas.get("total_ventas")))
+            contexto["ventas_por_dia"] = ventas.get("ventas_por_dia", [])
+            contexto["filtros_reporte"] = {
+                "fecha_inicio": ventas.get("fecha_inicio", ""),
+                "fecha_fin": ventas.get("fecha_fin", ""),
+            }
             contexto["productos_mas_vendidos"] = [
                 {
                     "codigo": fila.get("codigo"),
                     "nombre": fila.get("nombre"),
-                    "categoria": None,
-                    "unidades_vendidas": fila.get("cantidad_vendida"),
-                    "ingresos_generados": fila.get("ingresos"),
+                    "categoria": next(
+                        (
+                            producto.get("categoria")
+                            for producto in productos
+                            if str(producto.get("id"))
+                            == str(fila.get("producto_id"))
+                        ),
+                        "—",
+                    ),
+                    "unidades_vendidas": int(
+                        a_decimal(fila.get("cantidad_vendida"))
+                    ),
+                    "ingresos_generados": a_decimal(fila.get("ingresos")),
                 }
                 for fila in ventas.get("productos_mas_vendidos", [])
             ]
+
+    if seccion == "usuarios":
+        usuarios = _api_list(request, "/usuarios")
+        if usuarios is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["usuarios"] = usuarios
+
+    if seccion == "pagos":
+        filtros_pago = {
+            nombre: valor
+            for nombre, valor in {
+                "fecha_inicio": request.GET.get("fecha_inicio", ""),
+                "fecha_fin": request.GET.get("fecha_fin", ""),
+                "metodo_pago": contexto["filtro_metodo_pago"],
+            }.items()
+            if valor
+        }
+        pagos = _api_list(request, "/pagos", params=filtros_pago)
+        if pagos is None:
+            expired = _respuesta_sesion_expirada(request)
+            if expired:
+                return expired
+        else:
+            contexto["pagos"] = pagos
 
     return render(request, "tienda/panel.html", contexto)
 
 
 def guardar_producto(request):
-    denegado = _require_roles(request, (1, 2))
+    denegado = _require_roles(request, (1,))
     if denegado:
         return denegado
     if request.method != "POST":
@@ -954,25 +1290,37 @@ def guardar_producto(request):
 
 
 def eliminar_producto(request, producto_id):
-    denegado = _require_roles(request, (1, 2))
+    denegado = _require_roles(request, (1,))
     if denegado:
         return denegado
     if request.method != "POST":
         return redirect("/panel/?seccion=inventario")
+    if request.POST.get("accion") == "reactivar":
+        method = "PUT"
+        payload = {"estado": True}
+    else:
+        method = "DELETE"
+        payload = None
     response = api_request(
         request,
-        "DELETE",
+        method,
         f"/productos/{producto_id}",
         authenticated=True,
+        json_data=payload,
     )
     if response is None:
         return api_failure(request, redirect("/panel/?seccion=inventario"))
-    messages.success(request, "Producto eliminado del inventario.")
+    messages.success(
+        request,
+        "Producto reactivado correctamente."
+        if method == "PUT"
+        else "Producto inactivado correctamente.",
+    )
     return redirect("/panel/?seccion=inventario")
 
 
 def agregar_categoria(request):
-    denegado = _require_roles(request, (1, 2))
+    denegado = _require_roles(request, (1,))
     if denegado:
         return denegado
     if request.method != "POST":
@@ -1011,6 +1359,9 @@ def cambiar_estado_pedido(request, numero_factura):
         method = "POST"
         path = f"/pedidos/{pedido_id}/entregar"
         payload = {"metodo_pago": metodo_pago}
+        referencia_pago = request.POST.get("referencia_pago", "").strip()
+        if metodo_pago in ("Tarjeta", "Transferencia") and referencia_pago:
+            payload["referencia_pago"] = referencia_pago
     elif estado in ("En preparacion", "Listo"):
         method = "PUT"
         path = f"/pedidos/{pedido_id}"
@@ -1066,11 +1417,274 @@ def guardar_usuario(request):
     return redirect("/panel/?seccion=usuarios")
 
 
+def cambiar_estado_usuario(request, usuario_id):
+    denegado = _require_roles(request, (1,))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=usuarios")
+    activo_raw = request.POST.get("activo")
+    if activo_raw not in ("true", "false"):
+        messages.error(request, "Selecciona un estado de cuenta válido.")
+        return redirect("/panel/?seccion=usuarios")
+    activo = activo_raw == "true"
+    response = api_request(
+        request,
+        "PUT",
+        f"/usuarios/{usuario_id}/estado",
+        authenticated=True,
+        json_data={"activo": activo},
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=usuarios"))
+    messages.success(
+        request,
+        "Cuenta activada correctamente."
+        if activo
+        else "Cuenta inactivada y sesiones revocadas.",
+    )
+    return redirect("/panel/?seccion=usuarios")
+
+
+def revocar_sesiones_usuario(request, usuario_id):
+    denegado = _require_roles(request, (1,))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel/?seccion=usuarios")
+    response = api_request(
+        request,
+        "POST",
+        f"/usuarios/{usuario_id}/logout-all",
+        authenticated=True,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=usuarios"))
+    messages.success(request, f"Se revocaron las sesiones del usuario #{usuario_id}.")
+    return redirect("/panel/?seccion=usuarios")
+
+
+def revocar_mis_sesiones(request):
+    denegado = _require_roles(request, (1,))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return redirect("/panel")
+    response = api_request(
+        request,
+        "POST",
+        "/auth/logout-all",
+        authenticated=True,
+    )
+    if response is None:
+        return api_failure(request, redirect("/panel/?seccion=usuarios"))
+    request.session.pop("usuario", None)
+    request.session.modified = True
+    messages.success(request, "Se revocaron todas tus sesiones. Inicia sesión de nuevo.")
+    return redirect("login")
+
+
+def reenviar_verificacion_view(request):
+    denegado = _require_roles(request, (3,))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    response = api_request(
+        request,
+        "POST",
+        "/usuarios/me/reenviar-verificacion",
+        authenticated=True,
+    )
+    if response is None:
+        return api_failure(request, redirect("panel"))
+    if response.status_code != 200:
+        logger.error(
+            "Estado inesperado al solicitar verificación de correo: %s",
+            response.status_code,
+        )
+        messages.error(request, "El servicio no confirmó el envío del correo.")
+        return redirect("panel")
+    payload = _json_response(request, response, "solicitar verificación de correo")
+    if isinstance(payload, dict):
+        messages.success(
+            request,
+            payload.get(
+                "detail",
+                "Si tu correo está pendiente de verificación, recibirás un mensaje.",
+            ),
+        )
+    return redirect("panel")
+
+
+def reenviar_factura_email(request, venta_id):
+    denegado = _require_roles(request, (1, 2))
+    if denegado:
+        return denegado
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    if venta_id <= 0:
+        messages.error(request, "La venta no es válida.")
+        return redirect("panel")
+
+    response = api_request(
+        request,
+        "POST",
+        f"/ventas/{venta_id}/factura/email",
+        authenticated=True,
+    )
+    if response is None:
+        return api_failure(request, redirect("panel"))
+    if response.status_code != 202:
+        logger.error(
+            "Estado inesperado al reenviar factura de venta %s: %s",
+            venta_id,
+            response.status_code,
+        )
+        messages.error(request, "El servicio no confirmó el reenvío de la factura.")
+        return redirect("panel")
+    payload = _json_response(request, response, "reenviar factura por correo")
+    if isinstance(payload, dict):
+        messages.success(
+            request,
+            payload.get("detail", "Se solicitó el reenvío de la factura."),
+        )
+    return redirect("panel")
+
+
+def recuperar_password_view(request):
+    if request.method == "POST":
+        correo = request.POST.get("correo", "").strip()
+        if not _correo_valido(correo):
+            messages.error(request, "Ingresa un correo electrónico válido.")
+            return render(request, "tienda/recuperar_password.html", {"correo": correo})
+        response = api_request(
+            request,
+            "POST",
+            "/auth/olvide-password",
+            json_data={"correo": correo},
+            show_errors=False,
+        )
+        if response is not None and response.status_code != 200:
+            logger.warning(
+                "Estado inesperado al solicitar recuperación de contraseña: %s",
+                response.status_code,
+            )
+        return render(request, "tienda/recuperacion_confirmada.html")
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET", "POST"])
+    return render(request, "tienda/recuperar_password.html")
+
+
+def restablecer_password_view(request):
+    token = request.POST.get("token", "") if request.method == "POST" else (
+        request.GET.get("token", "")
+    )
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        if not 1 <= len(token) <= 255:
+            messages.error(request, "El enlace de restablecimiento no es válido.")
+        elif not 8 <= len(password) <= 255:
+            messages.error(
+                request,
+                "La contraseña debe tener entre 8 y 255 caracteres.",
+            )
+        else:
+            response = api_request(
+                request,
+                "POST",
+                "/auth/restablecer-password",
+                json_data={"token": token, "password": password},
+            )
+            if response is None:
+                return render(
+                    request,
+                    "tienda/restablecer_password.html",
+                    {"token": token},
+                )
+            if response.status_code == 200:
+                return render(
+                    request,
+                    "tienda/restablecer_password.html",
+                    {"completed": True},
+                )
+            if response.ok:
+                logger.error(
+                    "Estado inesperado al restablecer contraseña: %s",
+                    response.status_code,
+                )
+                messages.error(
+                    request,
+                    "El servicio no confirmó el cambio de contraseña.",
+                )
+        return render(
+            request,
+            "tienda/restablecer_password.html",
+            {"token": token},
+        )
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET", "POST"])
+    return render(request, "tienda/restablecer_password.html", {"token": token})
+
+
+def verificar_correo_view(request):
+    token = request.POST.get("token", "") if request.method == "POST" else (
+        request.GET.get("token", "")
+    )
+    if request.method == "POST":
+        if not 1 <= len(token) <= 255:
+            messages.error(request, "El enlace de verificación no es válido.")
+        else:
+            response = api_request(
+                request,
+                "POST",
+                "/usuarios/verificar-correo",
+                json_data={"token": token},
+            )
+            if response is None:
+                return render(
+                    request,
+                    "tienda/verificar_correo.html",
+                    {"token": token},
+                )
+            if response.status_code == 200:
+                return render(
+                    request,
+                    "tienda/verificar_correo.html",
+                    {"completed": True},
+                )
+            if response.ok:
+                logger.error(
+                    "Estado inesperado al verificar correo: %s",
+                    response.status_code,
+                )
+                messages.error(
+                    request,
+                    "El servicio no confirmó la verificación del correo.",
+                )
+        return render(
+            request,
+            "tienda/verificar_correo.html",
+            {"token": token},
+        )
+    if request.method != "GET":
+        return HttpResponseNotAllowed(["GET", "POST"])
+    return render(request, "tienda/verificar_correo.html", {"token": token})
+
+
 def login_view(request):
     next_url = request.GET.get("next") or request.POST.get("next") or ""
     if request.method == "POST":
         correo = request.POST.get("correo", "").strip()
         password = request.POST.get("password", "")
+        if not _correo_valido(correo):
+            messages.error(request, "Ingresa un correo electrónico válido.")
+            return render(
+                request,
+                "tienda/login.html",
+                {"next": next_url, "correo": correo},
+            )
         respuesta = api_request(
             request,
             "POST",
@@ -1080,13 +1694,21 @@ def login_view(request):
         if respuesta is not None:
             datos_api = _json_response(request, respuesta, "iniciar sesión")
             if not isinstance(datos_api, dict):
-                return render(request, "tienda/login.html", {"next": next_url})
+                return render(
+                    request,
+                    "tienda/login.html",
+                    {"next": next_url, "correo": correo},
+                )
             rol_id = datos_api.get("id_rol")
             token = datos_api.get("access_token")
             if rol_id not in ROLES_WEB or not token:
                 logger.error("La API devolvió datos incompletos al iniciar sesión")
                 messages.error(request, "El servicio no devolvió una sesión válida.")
-                return render(request, "tienda/login.html", {"next": next_url})
+                return render(
+                    request,
+                    "tienda/login.html",
+                    {"next": next_url, "correo": correo},
+                )
             usuario = {
                 "access_token": token,
                 "token_type": datos_api.get("token_type", "bearer"),
@@ -1121,11 +1743,30 @@ def logout_view(request):
 
 def registro_view(request):
     if request.method == "POST":
+        correo = request.POST.get("correo", "").strip()
+        password = request.POST.get("password", "")
+        if not _correo_valido(correo):
+            messages.error(request, "Ingresa un correo electrónico válido.")
+            return render(
+                request,
+                "tienda/registro.html",
+                {"correo": correo},
+            )
+        if not 8 <= len(password) <= 255:
+            messages.error(
+                request,
+                "La contraseña debe tener entre 8 y 255 caracteres.",
+            )
+            return render(
+                request,
+                "tienda/registro.html",
+                {"correo": correo},
+            )
         payload = {
             "Nombres": request.POST.get("Nombres", "").strip(),
             "apellidos": request.POST.get("apellidos", "").strip(),
-            "correo": request.POST.get("correo", "").strip(),
-            "password": request.POST.get("password", ""),
+            "correo": correo,
+            "password": password,
         }
         respuesta = api_request(
             request,
@@ -1136,7 +1777,7 @@ def registro_view(request):
         if respuesta is not None:
             messages.success(
                 request,
-                "Cuenta creada. Inicia sesión con tu correo.",
+                "Cuenta creada. Revisa tu correo y verifica la dirección antes de iniciar sesión.",
             )
             return redirect("login")
     return render(request, "tienda/registro.html")

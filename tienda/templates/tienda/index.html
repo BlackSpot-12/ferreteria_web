@@ -102,6 +102,9 @@
                 {% if categoria_actual %}
                     <input type="hidden" name="categoria" value="{{ categoria_actual }}">
                 {% endif %}
+                {% if precio_filtro_activo %}
+                    <input type="hidden" name="max_price" value="{{ precio_tope|floatformat:0 }}">
+                {% endif %}
                 <input class="form-control me-2 search-input" type="search" name="q" value="{{ busqueda }}" placeholder="Buscar por nombre, código, marca o medida...">
                 <button class="btn btn-naranja px-4" type="submit">Buscar</button>
             </form>
@@ -153,9 +156,50 @@
             {% endfor %}
         {% endif %}
 
-        <h3 class="fw-bold mb-4" style="color: #14283C;">Catálogo de Productos</h3>
+        <div class="d-flex justify-content-between align-items-center gap-3 mb-4">
+            <h3 class="fw-bold mb-0" style="color: #14283C;">Catálogo de Productos</h3>
+            <button class="btn btn-outline-secondary flex-shrink-0" type="button" data-bs-toggle="offcanvas" data-bs-target="#filtrosCatalogo" aria-controls="filtrosCatalogo">
+                <i class="bi bi-sliders me-1"></i> Filtros
+            </button>
+        </div>
+
+        <div class="offcanvas offcanvas-end" tabindex="-1" id="filtrosCatalogo" aria-labelledby="filtrosCatalogoLabel">
+            <div class="offcanvas-header">
+                <h5 class="offcanvas-title fw-bold" id="filtrosCatalogoLabel">Filtrar productos</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+            </div>
+            <div class="offcanvas-body">
+                <form action="{% url 'inicio' %}" method="GET">
+                    {% if busqueda %}<input type="hidden" name="q" value="{{ busqueda }}">{% endif %}
+                    {% if categoria_actual %}<input type="hidden" name="categoria" value="{{ categoria_actual }}">{% endif %}
+                    <label for="filtroPrecio" class="form-label fw-semibold">Precio máximo</label>
+                    <div class="d-flex justify-content-between small text-muted mb-1">
+                        <span>$0</span>
+                        <output id="filtroPrecioValor">${{ precio_tope|floatformat:0 }}</output>
+                    </div>
+                    <input
+                        id="filtroPrecio"
+                        type="range"
+                        name="max_price"
+                        class="form-range"
+                        min="0"
+                        max="{{ precio_tope_maximo }}"
+                        step="1"
+                        value="{{ precio_tope|floatformat:0 }}"
+                        {% if precio_tope_maximo == 0 %}disabled{% endif %}
+                    >
+                    <div class="d-flex justify-content-between small text-muted">
+                        <span>Menor precio</span>
+                        <span>${{ precio_tope_maximo }}</span>
+                    </div>
+                    <button class="btn btn-naranja w-100 mt-4" type="submit">Aplicar filtro</button>
+                    <a class="btn btn-outline-secondary w-100 mt-2" href="{% url 'inicio' %}">Limpiar filtros</a>
+                </form>
+            </div>
+        </div>
 
         {% if productos %}
+            <p class="text-muted small mb-3">{{ total_productos }} producto{{ total_productos|pluralize:"s" }} · Página {{ pagina_actual }} de {{ total_paginas }}</p>
             <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
                 {% for p in productos %}
                 <div class="col">
@@ -206,6 +250,27 @@
                 </div>
                 {% endfor %}
             </div>
+            {% if total_paginas > 1 %}
+                <nav class="mt-4" aria-label="Paginación del catálogo">
+                    <ul class="pagination justify-content-center flex-wrap">
+                        {% if url_pagina_anterior %}
+                            <li class="page-item"><a class="page-link" href="{{ url_pagina_anterior }}">Anterior</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">Anterior</span></li>
+                        {% endif %}
+                        {% for pagina in paginas %}
+                            <li class="page-item {% if pagina.numero == pagina_actual %}active{% endif %}">
+                                <a class="page-link" href="{{ pagina.url }}" {% if pagina.numero == pagina_actual %}aria-current="page"{% endif %}>{{ pagina.numero }}</a>
+                            </li>
+                        {% endfor %}
+                        {% if url_pagina_siguiente %}
+                            <li class="page-item"><a class="page-link" href="{{ url_pagina_siguiente }}">Siguiente</a></li>
+                        {% else %}
+                            <li class="page-item disabled"><span class="page-link">Siguiente</span></li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            {% endif %}
         {% else %}
             <div class="card border-0 shadow-sm rounded-3 p-5 text-center">
                 <h5 class="fw-bold" style="color: #14283C;">No se encontraron productos</h5>
@@ -235,5 +300,15 @@
         </div>
     </footer>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const priceSlider = document.getElementById('filtroPrecio');
+        const priceOutput = document.getElementById('filtroPrecioValor');
+        if (priceSlider && priceOutput) {
+            priceSlider.addEventListener('input', () => {
+                priceOutput.textContent = `$${priceSlider.value}`;
+            });
+        }
+    </script>
 </body>
 </html>

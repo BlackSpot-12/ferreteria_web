@@ -22,8 +22,8 @@
         {% endif %}
         <form method="POST" action="{% url 'consultar_pedido_invitado' %}">
             {% csrf_token %}
-            <label for="codigo_acceso" class="form-label">Código privado del comprobante</label>
-            <input id="codigo_acceso" name="codigo_acceso" type="password" class="form-control mb-3" autocomplete="off" required>
+            <label for="codigo_acceso" class="form-label">Código privado de 12 caracteres</label>
+            <input id="codigo_acceso" name="codigo_acceso" type="password" minlength="12" maxlength="12" pattern="[A-Za-z0-9_-]{12}" class="form-control mb-3" autocomplete="off" required>
             <button type="submit" class="btn btn-primary w-100">Consultar estado</button>
         </form>
         <a href="{% url 'inicio' %}" class="btn btn-link mt-2">Volver al catálogo</a>

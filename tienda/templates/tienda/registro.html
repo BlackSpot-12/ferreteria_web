@@ -62,7 +62,7 @@
                     <label class="form-label text-secondary small fw-semibold">Correo Electrónico</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-envelope-fill"></i></span>
-                        <input type="email" name="correo" class="form-control" placeholder="correo@ejemplo.com" required>
+                        <input type="email" name="correo" class="form-control" value="{{ correo|default:'' }}" placeholder="correo@ejemplo.com" autocomplete="email" required>
                     </div>
                 </div>
 
@@ -70,8 +70,9 @@
                     <label class="form-label text-secondary small fw-semibold">Contraseña</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
-                        <input type="password" name="password" class="form-control" placeholder="Crea una contraseña" required>
+                        <input type="password" name="password" class="form-control" placeholder="Crea una contraseña" minlength="8" maxlength="255" autocomplete="new-password" required>
                     </div>
+                    <div class="form-text">Usa entre 8 y 255 caracteres.</div>
                 </div>
 
                 <button type="submit" class="btn btn-naranja w-100">Crear Cuenta</button>

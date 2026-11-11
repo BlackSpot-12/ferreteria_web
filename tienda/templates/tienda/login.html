@@ -48,7 +48,7 @@
                     <label class="form-label text-secondary">Correo Electrónico</label>
                     <div class="input-group">
                         <span class="input-group-text"><i class="bi bi-envelope-fill"></i></span>
-                        <input type="email" name="correo" class="form-control" placeholder="correo@ejemplo.com" required>
+                        <input type="email" name="correo" class="form-control" value="{{ correo|default:'' }}" placeholder="correo@ejemplo.com" autocomplete="email" required>
                     </div>
                 </div>
 
@@ -62,6 +62,11 @@
 
                 <button type="submit" class="btn btn-naranja w-100">Ingresar</button>
             </form>
+            <div class="text-end mt-2">
+                <a href="{% url 'recuperar_password' %}" class="small text-decoration-none" style="color: #2E5A78;">
+                    ¿Olvidaste tu contraseña?
+                </a>
+            </div>
             <div class="text-center mt-3 pt-2 border-top">
                 <span class="text-muted small">¿Eres cliente nuevo?</span>
                 <a href="{% url 'registro' %}" class="fw-bold text-decoration-none small ms-1" style="color: #E66E19;">
